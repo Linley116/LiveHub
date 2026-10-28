@@ -1,14 +1,20 @@
-# LiveHub
+<div align="center">
 
-**把四个直播平台收进一个窗口：主播库、播放器、弹幕收发，全部本地运行。**
+<h1>LiveHub</h1>
 
-![platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-2b3345?style=flat-square)
-![electron](https://img.shields.io/badge/Electron-45-47848F?style=flat-square&logo=electron&logoColor=white)
-![node](https://img.shields.io/badge/Node.js-%E2%89%A5%2020-339933?style=flat-square&logo=node.js&logoColor=white)
-![local](https://img.shields.io/badge/%E6%9C%AC%E5%9C%B0%E8%BF%90%E8%A1%8C-%E4%B8%8D%E4%B8%8A%E4%BC%A0%E6%95%B0%E6%8D%AE-success?style=flat-square)
-![license](https://img.shields.io/badge/license-MIT-blue?style=flat-square)
+<p><b>把四个直播平台收进一个窗口：主播库、播放器、弹幕收发，全部本地运行。</b></p>
 
-![LiveHub 主播库](docs/images/hub.jpg)
+<p>
+  <img alt="platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-2b3345?style=flat-square">
+  <img alt="electron" src="https://img.shields.io/badge/Electron-45-47848F?style=flat-square&logo=electron&logoColor=white">
+  <img alt="node" src="https://img.shields.io/badge/Node.js-%E2%89%A5%2020-339933?style=flat-square&logo=node.js&logoColor=white">
+  <img alt="local" src="https://img.shields.io/badge/%E6%9C%AC%E5%9C%B0%E8%BF%90%E8%A1%8C-%E4%B8%8D%E4%B8%8A%E4%BC%A0%E6%95%B0%E6%8D%AE-success?style=flat-square">
+  <img alt="license" src="https://img.shields.io/badge/license-MIT-blue?style=flat-square">
+</p>
+
+<p><img src="docs/images/hub.jpg" alt="LiveHub 主播库" width="920"></p>
+
+</div>
 
 ## 这是什么
 
@@ -78,7 +84,7 @@ npm run dist:dir   # 只出 .app，用于快速验证
 
 **观看页**：中间播放，右边弹幕，底下输入框。四个平台在这个页面上长得一样。
 
-![观看页](docs/images/room.jpg)
+<p align="center"><img src="docs/images/room.jpg" alt="观看页" width="920"></p>
 
 ## 工作原理
 
