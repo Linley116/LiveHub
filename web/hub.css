@@ -256,10 +256,10 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
  * 这样播放器和弹幕列严格等高平齐，多出来的空间留在下方而不是塞进容器里。
  * 弹幕列给一个随窗口缩放的固定宽度，宽度不够时优先让弹幕让路。
  */
-.watch-layout { flex: none; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 338px; align-items: stretch; gap: 17px; }
-@media (max-width: 1240px) { .watch-layout { grid-template-columns: minmax(0, 1fr) 300px; } }
-@media (max-width: 1080px) { .watch-layout { grid-template-columns: minmax(0, 1fr) 276px; } }
-.player-column { min-width: 0; min-height: 0; display: flex; flex-direction: column; justify-content: center; }
+/* 弹幕不再单独占一列：整块空间都给播放器，弹幕飘在画面上、输入框做进播放器 */
+.watch-layout { flex: 1 1 auto; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr); }
+/* 播放器在可用空间里最大化并居中，具体宽高由 JS 按视频比例算（syncPlayerAspect） */
+.player-column { min-width: 0; min-height: 0; display: flex; align-items: center; justify-content: center; }
 /* container-type 供下面的控制条分级收缩查询（按播放器自身宽度，而不是窗口宽度） */
 .watch-player { position: relative; width: 100%; flex: none; aspect-ratio: 16 / 9; display: grid; place-items: center; overflow: hidden; container-type: inline-size; border: 1px solid #343945; border-radius: 16px; background: #050608; box-shadow: 0 40px 90px -38px #000, 0 2px 10px -4px rgba(0,0,0,.6); }
 .watch-player video { width: 100%; height: 100%; display: block; object-fit: contain; background: #050608; }
@@ -269,8 +269,30 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .loading-mark { width: 23px; height: 23px; border: 2px solid rgba(255,255,255,.17); border-top-color: var(--accent); border-radius: 50%; animation: hub-spin .8s linear infinite; }
 @keyframes hub-spin { to { transform: rotate(360deg); } }
 .player-message.is-error .loading-mark { display: none; }
-.danmaku-overlay { position: absolute; z-index: 1; inset: 8% 4% 24%; overflow: hidden; pointer-events: none; opacity: 0; transition: opacity .15s; }
+.danmaku-overlay { position: absolute; z-index: 1; inset: 6% 4% 22%; overflow: hidden; pointer-events: none; opacity: 0; transition: opacity .15s; }
 .danmaku-overlay.is-visible { opacity: 1; }
+
+/* ---- 弹幕收发做进播放器 ---- */
+/* 右上角状态点：跟随控制条一起显隐，不常驻打扰画面 */
+.player-danmaku-state { position: absolute; z-index: 3; top: 12px; right: 12px; padding: 5px 9px; border: 1px solid rgba(255,255,255,.14); border-radius: 7px; background: rgba(15,17,20,.6); color: #cfd4da; font-size: 10px; white-space: nowrap; backdrop-filter: blur(12px); pointer-events: none; transition: opacity .18s ease; }
+.player-danmaku-state.is-connected { border-color: rgba(89,212,154,.3); color: #8fdcb0; }
+.player-danmaku-state.is-error { border-color: rgba(251,102,108,.32); color: #ff9ea3; }
+.watch-player.is-idle .player-danmaku-state { opacity: 0; }
+/* 输入框摆在控制条上方；正在输入时不跟随自动隐藏 */
+.player-composer { position: absolute; z-index: 3; left: 14px; right: 14px; bottom: 72px; display: flex; gap: 7px; transition: opacity .18s ease; }
+.watch-player.is-idle .player-composer { opacity: 0; pointer-events: none; }
+.player-composer:focus-within { opacity: 1; pointer-events: auto; }
+.player-composer input { flex: 1; min-width: 0; height: 34px; padding: 0 11px; outline: none; border: 1px solid rgba(255,255,255,.16); border-radius: 9px; color: #f1f3f5; background: rgba(13,15,19,.84); font-size: 12px; backdrop-filter: blur(14px); transition: border-color .18s ease; }
+.player-composer input::placeholder { color: rgba(190,196,204,.6); }
+.player-composer input:focus { border-color: rgba(183,237,131,.55); }
+.player-composer input:disabled { opacity: .5; }
+.player-composer button { flex: none; height: 34px; padding: 0 14px; border: 0; border-radius: 9px; color: #10150c; background: var(--accent); font-size: 12px; font-weight: 700; }
+.player-composer button:disabled { opacity: .4; cursor: not-allowed; }
+/* 发送能力说明：贴着输入框上方，带描边保证在亮画面上也读得清 */
+.player-composer-note { position: absolute; z-index: 3; left: 16px; right: 16px; bottom: 111px; margin: 0; color: rgba(238,241,246,.9); font-size: 10.5px; line-height: 1.5; text-shadow: 0 1px 3px rgba(0,0,0,.9), 0 0 12px rgba(0,0,0,.65); pointer-events: none; transition: opacity .18s ease; }
+.player-composer-note:empty { display: none; }
+.watch-player.is-idle .player-composer-note { opacity: 0; }
+.player-composer:focus-within ~ .player-composer-note { opacity: 1; }
 /* 控制条做进播放容器内：这样全屏时它跟着容器进 top layer，还能继续用 */
 .player-bar { position: absolute; z-index: 3; left: 0; right: 0; bottom: 0; display: flex; align-items: center; gap: 7px; padding: 26px 12px 10px; background: linear-gradient(transparent, rgba(3,4,6,.55) 42%, rgba(3,4,6,.92)); opacity: 1; transition: opacity .18s ease; }
 /* 鼠标停一会儿自动隐身，别长期压着画面；移动鼠标或暂停时立刻回来 */
@@ -356,43 +378,14 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
  * 弹幕列：面板绝对定位撑满这一格，自身不产生高度贡献，
  * 这样网格行高就只由左侧播放器列决定 —— 否则弹幕越多行越高，整个页面被拽长。
  */
-.danmaku-column { position: relative; min-width: 0; min-height: 420px; }
-.danmaku-panel { position: absolute; inset: 0; min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow: hidden; border: 1px solid rgba(255,255,255,.055); border-radius: 16px; background: rgba(21,24,30,.94); backdrop-filter: blur(14px); box-shadow: 0 30px 70px -40px #000; }
-.danmaku-header { flex: none; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 15px 15px 12px; border-bottom: 1px solid rgba(255,255,255,.065); }
-.danmaku-header h2 { margin: 0; color: #e8eaf0; font-size: 14px; font-weight: 650; }
-.danmaku-header p { margin: 4px 0 0; color: #9298a3; font-size: 11px; }
-.danmaku-indicator { flex: none; padding: 5px 8px; border: 1px solid rgba(235,185,91,.2); border-radius: 7px; color: #dfba75; background: rgba(235,185,91,.08); font-size: 10px; }
-.danmaku-indicator.is-connected { border-color: rgba(181,237,134,.25); color: var(--accent); background: rgba(181,237,134,.08); }
-.danmaku-notice { flex: none; display: flex; align-items: flex-start; gap: 8px; margin: 12px 12px 0; padding: 10px; border: 1px solid rgba(235,185,91,.16); border-radius: 8px; color: #c8ad76; background: rgba(235,185,91,.06); }
-.danmaku-notice.is-unavailable { border-color: rgba(255,255,255,.07); color: #a1a6b0; background: rgba(255,255,255,.025); }
-.notice-icon { flex: none; width: 15px; height: 15px; display: grid; place-items: center; border: 1px solid currentColor; border-radius: 50%; font-size: 9px; font-weight: 700; }
-.danmaku-notice p { margin: 0; font-size: 11px; line-height: 1.6; }
 /* min-height:0 是关键——flex 子项默认不肯收缩到内容以下，不给它名单 END 就会被内容顶高 */
-.danmaku-scroll { position: relative; flex: 1 1 0; min-height: 0; display: flex; }
 /* 故意不开 scroll-behavior:smooth：弹幕是逐条追加的，平滑滚动会让「跟随到底部」永远慢半拍，
    高频弹幕时跟随追不上新内容，反而被误判成「用户在翻历史」，提示按钮就会乱闪。跟随一律瞬时。 */
-.danmaku-list { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; padding: 12px 15px; color: #c7cad2; font-size: 12px; }
-.danmaku-list::-webkit-scrollbar { width: 6px; }
-.danmaku-list::-webkit-scrollbar-thumb { border-radius: 3px; background: #33373f; }
-.danmaku-list::-webkit-scrollbar-thumb:hover { background: #43484f; }
-.danmaku-list::-webkit-scrollbar-track { background: transparent; }
 
 /* 用户往上翻 history 时暂停自动跟随，底部提示有多少条新弹幕，点一下回到底部 */
 /* min-width + tabular-nums：未读数从 1 涨到 99+ 时按钮宽度恒定，不再随数字一起呼吸抖动 */
-.danmaku-jump { position: absolute; bottom: 10px; left: 50%; z-index: 2; display: inline-flex; align-items: center; justify-content: center; gap: 5px; min-width: 110px; height: 28px; padding: 0 11px; border: 1px solid rgba(255,82,103,.3); border-radius: 15px; color: #ffc9cf; background: rgba(38,20,24,.94); font-size: 11px; font-variant-numeric: tabular-nums; cursor: pointer; transform: translateX(-50%); box-shadow: 0 5px 16px -8px #000; animation: jump-in .18s ease; }
 @keyframes jump-in { from { opacity: 0; transform: translateX(-50%) translateY(7px); } to { opacity: 1; transform: translateX(-50%) translateY(0); } }
-.danmaku-jump:hover { border-color: rgba(255,82,103,.5); color: #fff; }
-.danmaku-jump i { font-style: normal; font-size: 11px; line-height: 1; }
-.danmaku-empty { display: grid; min-height: 125px; place-items: center; color: #656b76; text-align: center; }
-.danmaku-compose { flex: none; display: flex; gap: 7px; padding: 10px 12px 8px; border-top: 1px solid rgba(255,255,255,.06); }
-.danmaku-compose input { min-width: 0; flex: 1; height: 38px; padding: 0 11px; border: 1px solid #343842; border-radius: 9px; outline: none; color: #e4e6eb; background: #14171c; font-size: 12px; }
-.danmaku-compose input::placeholder { color: #676d78; }
-.danmaku-compose input:disabled { opacity: .7; }
 /* 冷却倒计时（3s/2s）比「发送」窄，固定宽度避免按钮抖动 */
-.danmaku-compose button { flex: none; min-width: 62px; height: 38px; padding: 0 14px; border: 0; border-radius: 9px; color: var(--accent-ink); background: var(--accent); font-size: 12px; font-weight: 650; transition: background .15s, color .15s; }
-.danmaku-compose button.is-sending { color: #9aa0aa; background: #2b2f38; }
-.danmaku-compose button:disabled { color: #7a7f88; background: #282b33; cursor: not-allowed; }
-.danmaku-auth-note { flex: none; padding: 0 14px 13px; color: #858b97; font-size: 10px; line-height: 1.55; }
 
 @media (max-width: 900px) {
   .watch-layout { grid-template-columns: minmax(0, 1fr); }
@@ -400,7 +393,6 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
      视频恢复 16:9，弹幕给固定高度在框内滚，避免上下两块都挤扁 */
   .watch-content { flex: none; }
   .watch-player { flex: none; aspect-ratio: 16 / 9; }
-  .danmaku-column { min-height: 340px; }
   .platform-page { min-height: 70vh; }
 }
 @media (max-width: 560px) {
@@ -414,20 +406,10 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
   .player-bar { flex-wrap: nowrap; gap: 5px; padding: 14px 9px 9px; }
   .player-bar-gap { flex: 1; }
   .player-volume { width: 46px; margin-left: 6px; opacity: 1; }
-  .danmaku-column { min-height: 320px; }
 }
 
 /* 弹幕列表与悬浮层 */
-.danmaku-item { display: flex; gap: 6px; padding: 3px 0; border-bottom: 1px solid rgba(255,255,255,.035); line-height: 1.55; word-break: break-word; }
-.danmaku-item:last-child { border-bottom: 0; }
-.danmaku-user { flex: none; max-width: 42%; overflow: hidden; color: #b5d695; font-size: 11.5px; text-overflow: ellipsis; white-space: nowrap; }
-.danmaku-user::after { content: '：'; color: #5f656f; }
-.danmaku-text { min-width: 0; color: #d7dae1; font-size: 12px; }
 /* 自己发出的弹幕：蓝色左边条 + 名字换色，和默认的绿色昵称区分开，滚动时一眼认得出 */
-.danmaku-item.is-self { margin: 1px 0; padding-left: 7px; border-bottom: 0; border-left: 2px solid #7aa7ff; border-radius: 0 3px 3px 0; background: rgba(122,167,255,.09); }
-.danmaku-item.is-self .danmaku-user { color: #9dbcff; }
-.danmaku-item.is-self .danmaku-text { color: #eef0f5; }
-.danmaku-indicator.is-error { border-color: rgba(255,82,103,.25); color: #ff8b98; background: rgba(255,82,103,.08); }
 /* 字号与透明度由「弹幕设置」面板写在这两个变量上（不设置时用下面的默认值） */
 .danmaku-float {
   position: absolute; left: 100%; white-space: nowrap;

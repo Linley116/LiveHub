@@ -501,11 +501,8 @@ async function enterWatchRoom(room) {
   $('#watchTitle').textContent = roomName(room);
   $('#watchAnchor').textContent = creatorName(room);
   setWatchAvatar(room);
-  $('#danmakuSummary').textContent = '正在检查平台接入状态';
   $('#danmakuIndicator').textContent = '检测中';
-  $('#danmakuNoticeText').textContent = '正在读取弹幕接入状态…';
-  $('#danmakuAuthNote').textContent = '正在检查该平台的弹幕接入状态…';
-  $('#danmakuEmpty').textContent = '此房间的弹幕消息会显示在这里';
+  $('#danmakuAuthNote').textContent = '';
   $('#danmakuOverlay').replaceChildren();
   $('#danmakuOverlay').classList.remove('is-visible');
   $('#toggleOverlay').disabled = true;
@@ -524,10 +521,8 @@ async function enterWatchRoom(room) {
   $('#danmakuInput').placeholder = '正在检查弹幕发送能力…';
   $('#danmakuForm button').disabled = true;
   $('#danmakuForm button').textContent = '发送';
-  // 换房间先把比例还原成 CSS 默认值，免得上一个房间的尺寸留在这儿
-  $('#watchPlayer').style.aspectRatio = '';
-  const danmakuColumn = document.querySelector('.danmaku-column');
-  if (danmakuColumn) danmakuColumn.style.minHeight = '';
+  // 换房间先把上一次算出的尺寸清掉，免得留在这儿
+  resetPlayerSize();
   setWatchBackdrop(room); // 封面可能是这里刚从服务端刷新出来的
   $('#qualityBtn').textContent = '自动';
   $('#qualityBtn').disabled = true;
@@ -718,14 +713,7 @@ function stopDanmaku() {
   danmaku.selfSent = [];
   danmaku.restricted = null;
   clearTimeout(danmaku.cooldownTimer);
-  const list = $('#danmakuList');
-  if (list) list.querySelectorAll('.danmaku-item').forEach((node) => node.remove());
   $('#danmakuOverlay')?.replaceChildren();
-  const empty = $('#danmakuEmpty');
-  if (empty) {
-    empty.hidden = false;
-    empty.textContent = '此房间的弹幕消息会显示在这里';
-  }
   resetDanmakuFollow();
 }
 
@@ -737,19 +725,17 @@ function applyDanmakuStatus(room, status) {
   indicator.textContent = text.label;
   indicator.classList.toggle('is-connected', status.state === 'connected');
   indicator.classList.toggle('is-error', status.state === 'error');
-  $('#danmakuSummary').textContent = status.state === 'connected' ? '实时弹幕' : text.summary;
-  $('#danmakuNoticeText').textContent = status.message || text.summary;
-  $('#danmakuNotice').classList.toggle('is-unavailable', status.state !== 'connected');
-  $('#danmakuAuthNote').textContent = status.read
-    ? `由 LiveHub 直连${platform(room.platform).name}弹幕通道，只读取聊天弹幕；发送需要平台授权，暂未启用。`
-    : '该平台弹幕通道暂不可用。';
+  // 说明文字现在贴着播放器内的输入框，要短，长了会糊住画面
+  const note = $('#danmakuAuthNote');
+  if (note) note.textContent = status.read ? '' : `${platform(room.platform).name}弹幕通道暂不可用。`;
   $('#toggleOverlay').disabled = !status.read;
   if (!status.read) setDanmakuOverlay(false);
-  else if (player.pendingOverlay !== undefined) {
-    // 这个房间上次是开着悬浮弹幕的，等通道就绪后替用户重新打开
-    const wanted = player.pendingOverlay;
+  else {
+    // 列表已经去掉，弹幕全靠悬浮显示；没记过偏好就默认打开，
+    // 否则用户进来一条弹幕都看不到
+    const wanted = player.pendingOverlay === undefined ? true : player.pendingOverlay;
     player.pendingOverlay = undefined;
-    if (wanted) setDanmakuOverlay(true);
+    setDanmakuOverlay(wanted);
   }
   applySendCapability(room, status);
 }
@@ -953,13 +939,7 @@ let jumpRenderTimer = null;
  * 之前每条弹幕都无条件写一次，实测 6 秒能写出 407 次无意义的属性变更。
  */
 function renderJumpBadge() {
-  const jump = $('#danmakuJump');
-  const text = $('#danmakuJumpText');
-  const show = danmaku.unread > 0;
-  if (jump.hidden === show) jump.hidden = !show;
-  if (!show) return;
-  const label = danmaku.unread > 99 ? '99+ 条新弹幕' : `${danmaku.unread} 条新弹幕`;
-  if (text.textContent !== label) text.textContent = label;
+  // 悬浮弹幕模式下没有列表，无需处理
 }
 
 /** 合并高频更新：期间 unread 照常累加，只是渲染慢一拍，避免数字每秒跳十几次 */
@@ -973,20 +953,12 @@ function scheduleJumpRender() {
 
 /* 是否贴着底部。留 40px 容差，手指/触控板拉到差一点点也算在底部 */
 function isDanmakuPinned() {
-  const list = $('#danmakuList');
-  if (!list) return true;
-  // 内容还没超过一屏时根本滚不动，一律按贴底处理。
-  // 否则刚进房间那几十条会把 scrollHeight - clientHeight 的差值误判成「用户翻上去了」，提示凭空闪一下。
-  if (list.scrollHeight <= list.clientHeight + 40) return true;
-  return list.scrollHeight - list.scrollTop - list.clientHeight < 40;
+  // 悬浮弹幕模式下没有列表，无需处理
 }
 
 /** 把列表拉回底部，回到「跟随最新」状态 */
 function followDanmaku() {
-  const list = $('#danmakuList');
-  if (!list) return;
-  list.scrollTop = list.scrollHeight;
-  resetDanmakuFollow();
+  // 悬浮弹幕模式下没有列表，无需处理
 }
 
 /** 清掉未读并收起提示。收起必须立刻生效，所以不走节流、还要取消挂起的渲染 */
@@ -1003,38 +975,9 @@ function pushDanmaku(msg, { self = false } = {}) {
   if (!self && consumeSelfEcho(msg)) return;
 
   danmaku.count += 1;
-  const list = $('#danmakuList');
-  const empty = $('#danmakuEmpty');
-
-  const row = document.createElement('div');
-  row.className = self || msg.self ? 'danmaku-item is-self' : 'danmaku-item';
-  const user = document.createElement('span');
-  user.className = 'danmaku-user';
-  user.textContent = msg.user;
-  const text = document.createElement('span');
-  text.className = 'danmaku-text';
-  text.textContent = msg.content;
-  if (msg.color) text.style.color = msg.color;
-  row.append(user, text);
-
-  const pinned = isDanmakuPinned();
-  if (empty) empty.hidden = true;
-  list.appendChild(row);
-  while (list.querySelectorAll('.danmaku-item').length > DANMAKU_LIMIT) {
-    list.querySelector('.danmaku-item')?.remove();
-  }
-
-  // 贴底就自动跟随；用户正在往上翻史时别抢滚动条，改成提示有几条新的
-  if (pinned) {
-    list.scrollTop = list.scrollHeight;
-    resetDanmakuFollow();
-  } else {
-    danmaku.unread += 1;
-    scheduleJumpRender();
-  }
-
+  // 弹幕列表已经不要了：弹幕直接飘在画面上（和主流直播网页一致）
   if (player.overlay) spawnOverlay(msg);
-  return row;
+  return null;
 }
 
 function spawnOverlay(msg) {
@@ -1178,7 +1121,9 @@ function applyRoomPrefs(room) {
 
   // 线路（清晰度要等服务端返回可选档位后再套用，见 loadWatchRoom）
   player.line = Number(prefs.line) || 0;
-  player.pendingOverlay = Boolean(prefs.overlay);
+  // 没调过这个房间就留空（undefined），等通道就绪时按「默认开启」处理：
+  // 弹幕列表已经去掉，不开悬浮就一条弹幕都看不见
+  player.pendingOverlay = typeof prefs.overlay === 'boolean' ? prefs.overlay : undefined;
   syncSoundUI();
 }
 
@@ -1653,31 +1598,42 @@ function syncSoundUI() {
   $('#volumeRange').value = String(video.muted ? 0 : video.volume);
 }
 
+/** 清掉算出来的尺寸，回到 CSS 默认（换房间时用） */
+function resetPlayerSize() {
+  const stage = $('#watchPlayer');
+  if (!stage) return;
+  stage.style.width = '';
+  stage.style.height = '';
+}
+
 /**
- * 播放器容器跟着视频的真实宽高比走。
- * 之前容器是「拉满剩余高度」，而这个高度通常比 16:9 更高，
- * 视频按 contain 缩放后只能宽度撑满，上下就空出两条黑边。
- * 拿到真实尺寸后按比例收自我调整即可消除，极端比例（比如手机竖屏）做
- * 一点收敛，免得播放器把整个页面顶开。
+ * 播放器在可用空间里取最大。
+ * 宽度和高度都得顾：只按宽度推高度，遇到竖屏流会顶出可视区；
+ * 只按高度推宽度又可能超出可用宽度。取两者较小的那个，
+ * 容器严格等于视频比例 —— 既无黑边也不裁切，还尽量占满区域。
+ * 极端比例收敛一下，免得竖屏直播把播放器撑成一根长条。
  */
 function syncPlayerAspect() {
   const video = $('#watchVideo');
   const stage = $('#watchPlayer');
   if (!stage || !video) return;
   const { videoWidth: w, videoHeight: h } = video;
-  if (!w || !h) return; // 还没拿到尺寸就保持 CSS 里的默认比例
+  if (!w || !h) return; // 还没拿到尺寸就保持 CSS 里的默认表现
   const ratio = Math.min(Math.max(w / h, 0.8), 2.8);
-  stage.style.aspectRatio = String(ratio);
-  // 弹幕列跟着播放器走，两列始终上下平齐（CSS 的 min-height 只是拿到尺寸前的兜底）
-  const column = document.querySelector('.danmaku-column');
-  if (column) {
-    const height = stage.getBoundingClientRect().height;
-    if (height) column.style.minHeight = `${Math.max(320, Math.round(height))}px`;
-  }
+  const column = stage.parentElement; // .player-column
+  const availW = column?.clientWidth || stage.clientWidth;
+  const availH = column?.clientHeight || 0;
+  if (!availW) return;
+  const byWidth = availW / ratio;
+  const height = availH ? Math.min(byWidth, availH) : byWidth;
+  const width = height * ratio;
+  stage.style.width = `${Math.round(width)}px`;
+  stage.style.height = `${Math.round(height)}px`;
 }
 
 /** 播放/暂停图标跟着实际状态走 */
-function syncPlayUI() {  const paused = $('#watchVideo').paused;
+function syncPlayUI() {
+  const paused = $('#watchVideo').paused;
   $('#playerBar').classList.toggle('is-paused', paused);
   $('#togglePlay').title = paused ? '播放' : '暂停';
   $('#togglePlay').setAttribute('aria-label', paused ? '播放' : '暂停');
@@ -2024,6 +1980,8 @@ async function init() {
   for (const event of ['loadedmetadata', 'resize']) {
     $('#watchVideo').addEventListener(event, syncPlayerAspect);
   }
+  // 播放器尺寸是按「可用区域 + 视频比例」算出来的，窗口一变就得重算
+  window.addEventListener('resize', syncPlayerAspect);
   setupPlayerBarAutoHide();
   startLatencyProbe();
   loadDanmakuStyle();
@@ -2034,13 +1992,7 @@ async function init() {
   $('#toggleFullscreen').addEventListener('click', () => enterFullscreen());
   hijackVideoFullscreen();
   // 弹幕列表：点提示回到底部；自己滚回底部也要收起提示
-  $('#danmakuJump').addEventListener('click', () => followDanmaku());
-  $('#danmakuList').addEventListener('scroll', () => {
-    if (isDanmakuPinned()) resetDanmakuFollow();
-  }, { passive: true });
-  $('#viewSwitch').querySelectorAll('button').forEach((button) => {
-    button.addEventListener('click', () => setViewMode(button.dataset.view));
-  });
+
   $('#platformReload').addEventListener('click', () => {
     const view = $('#platformPageBody')?.querySelector('webview');
     if (view) view.reload();

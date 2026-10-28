@@ -179,34 +179,18 @@
                   <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9.5V4.5h5M20 9.5V4.5h-5M4 14.5v5h5M20 14.5v5h-5" /></svg>
                 </button>
               </div>
-            </div>
-          </section>
 
-          <div class="danmaku-column">
-            <aside class="danmaku-panel" aria-label="直播弹幕">
-              <header class="danmaku-header">
-                <div><h2>直播弹幕</h2><p id="danmakuSummary">正在检查平台接入状态</p></div>
-                <span class="danmaku-indicator" id="danmakuIndicator">检测中</span>
-              </header>
-              <div class="danmaku-notice" id="danmakuNotice" role="status">
-                <span class="notice-icon">i</span>
-                <p id="danmakuNoticeText">正在读取弹幕接入状态…</p>
-              </div>
-              <div class="danmaku-scroll">
-                <div class="danmaku-list" id="danmakuList" aria-live="polite">
-                  <div class="danmaku-empty" id="danmakuEmpty">此房间的弹幕消息会显示在这里</div>
-                </div>
-                <button type="button" class="danmaku-jump" id="danmakuJump" hidden>
-                  <span id="danmakuJumpText">新弹幕</span><i>↓</i>
-                </button>
-              </div>
-              <form class="danmaku-compose" id="danmakuForm">
+              <!-- 弹幕收发直接做进播放器：弹幕飘在画面上，输入框摆在控制条上方，
+                   和主流直播网页一样，不再单独占一列 -->
+              <span class="player-danmaku-state" id="danmakuIndicator">检测中</span>
+              <form class="player-composer" id="danmakuForm">
                 <input id="danmakuInput" maxlength="30" placeholder="进入房间后检测发送能力…" aria-label="发送弹幕" disabled />
                 <button type="submit" disabled>发送</button>
               </form>
-              <div class="danmaku-auth-note" id="danmakuAuthNote">请配置该平台的授权接入后，才能读取或发送真实弹幕。</div>
-            </aside>
-          </div>
+              <p class="player-composer-note" id="danmakuAuthNote">请配置该平台的授权接入后，才能读取或发送真实弹幕。</p>
+            </div>
+          </section>
+
         </div>
 
         <section class="platform-page" id="platformPage" hidden>
