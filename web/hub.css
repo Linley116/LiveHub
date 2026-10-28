@@ -234,9 +234,9 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .watch-category { margin-left: auto; color: #969ca7; font-size: 11.5px; }
 /* min-height:0 一路往下传，否则 flex 子项会以内容高度为下限、填不满也不肯缩 */
 .watch-layout { flex: 1 1 auto; min-height: 0; display: grid; grid-template-columns: minmax(0, 1.8fr) minmax(300px, .72fr); align-items: stretch; gap: 17px; }
-.player-column { min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.player-column { min-width: 0; min-height: 0; display: flex; flex-direction: column; justify-content: center; }
 /* container-type 供下面的控制条分级收缩查询（按播放器自身宽度，而不是窗口宽度） */
-.watch-player { position: relative; width: 100%; flex: 1 1 auto; min-height: 0; display: grid; place-items: center; overflow: hidden; container-type: inline-size; border: 1px solid #30343d; border-radius: 14px; background: #050608; box-shadow: 0 22px 65px -38px #000; }
+.watch-player { position: relative; width: 100%; flex: none; aspect-ratio: 16 / 9; display: grid; place-items: center; overflow: hidden; container-type: inline-size; border: 1px solid #30343d; border-radius: 14px; background: #050608; box-shadow: 0 22px 65px -38px #000; }
 .watch-player video { width: 100%; height: 100%; display: block; object-fit: contain; background: #050608; }
 .player-message { position: absolute; inset: 0; z-index: 2; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 24px; color: #c1c5ce; background: rgba(5,6,8,.9); text-align: center; font-size: 13px; }
 .player-message.is-hidden { display: none; }

@@ -488,6 +488,8 @@ async function enterWatchRoom(room) {
   $('#danmakuInput').placeholder = '正在检查弹幕发送能力…';
   $('#danmakuForm button').disabled = true;
   $('#danmakuForm button').textContent = '发送';
+  // 换房间先把比例还原成 CSS 默认值，免得上一个房间的尺寸留在这儿
+  $('#watchPlayer').style.aspectRatio = '';
   $('#qualityBtn').textContent = '自动';
   $('#qualityBtn').disabled = true;
   $('#qualityOptions').innerHTML = '';
@@ -1613,9 +1615,25 @@ function syncSoundUI() {
   $('#volumeRange').value = String(video.muted ? 0 : video.volume);
 }
 
+/**
+ * 播放器容器跟着视频的真实宽高比走。
+ * 之前容器是「拉满剩余高度」，而这个高度通常比 16:9 更高，
+ * 视频按 contain 缩放后只能宽度撑满，上下就空出两条黑边。
+ * 拿到真实尺寸后按比例收自我调整即可消除，极端比例（比如手机竖屏）做
+ * 一点收敛，免得播放器把整个页面顶开。
+ */
+function syncPlayerAspect() {
+  const video = $('#watchVideo');
+  const stage = $('#watchPlayer');
+  if (!stage || !video) return;
+  const { videoWidth: w, videoHeight: h } = video;
+  if (!w || !h) return; // 还没拿到尺寸就保持 CSS 里的默认比例
+  const ratio = Math.min(Math.max(w / h, 0.8), 2.8);
+  stage.style.aspectRatio = String(ratio);
+}
+
 /** 播放/暂停图标跟着实际状态走 */
-function syncPlayUI() {
-  const paused = $('#watchVideo').paused;
+function syncPlayUI() {  const paused = $('#watchVideo').paused;
   $('#playerBar').classList.toggle('is-paused', paused);
   $('#togglePlay').title = paused ? '播放' : '暂停';
   $('#togglePlay').setAttribute('aria-label', paused ? '播放' : '暂停');
@@ -1957,6 +1975,10 @@ async function init() {
       syncPlayUI();
       bumpPlayerBar();
     });
+  }
+  // 取到视频尺寸后立刻贴合比例；resize 覆盖 HLS 切清晰度导致的分辨率变化
+  for (const event of ['loadedmetadata', 'resize']) {
+    $('#watchVideo').addEventListener(event, syncPlayerAspect);
   }
   setupPlayerBarAutoHide();
   startLatencyProbe();
