@@ -10,7 +10,9 @@
     "desktop": "electron desktop/main.cjs",
     "desktop:dev": "electron desktop/main.cjs --remote-debugging-port=9333",
     "dist": "electron-builder --mac",
-    "dist:dir": "electron-builder --mac --dir"
+    "dist:dir": "electron-builder --mac --dir",
+    "sync:app": "node scripts/sync-app.mjs",
+    "sync:app:diff": "node scripts/sync-app.mjs --diff"
   },
   "dependencies": {
     "express": "^4.21.2",

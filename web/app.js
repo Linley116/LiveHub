@@ -38,6 +38,10 @@ const player = {
   watchdog: null,
   // 用户手动调过声音后就不再被「重连即静音」覆盖（否则重连一次音量选择就丢了）
   soundUserSet: false,
+  // 正在恢复观看偏好的过程中，别把「恢复动作」当成用户改动再写回偏好
+  applyingPrefs: false,
+  // 悬浮弹幕要等弹幕通道就绪才能开，先记着（undefined = 这次不用恢复）
+  pendingOverlay: undefined,
 };
 
 const escapeHTML = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => ({
@@ -496,7 +500,8 @@ function enterWatchRoom(room) {
   player.qualityMode = 'remote';
   player.streams = [];
   player.platform = room.platform;
-  syncSoundUI();
+  // 恢复这个直播间上次的声音、线路、弹幕设置（清晰度要等服务端返回档位后再套用）
+  applyRoomPrefs(room);
   $('#playerMessage').classList.remove('is-hidden', 'is-error');
   $('#playerMessageText').textContent = '正在连接直播间…';
   $('#playerStatus').textContent = '连接中';
@@ -697,6 +702,12 @@ function applyDanmakuStatus(room, status) {
     : '该平台弹幕通道暂不可用。';
   $('#toggleOverlay').disabled = !status.read;
   if (!status.read) setDanmakuOverlay(false);
+  else if (player.pendingOverlay !== undefined) {
+    // 这个房间上次是开着悬浮弹幕的，等通道就绪后替用户重新打开
+    const wanted = player.pendingOverlay;
+    player.pendingOverlay = undefined;
+    if (wanted) setDanmakuOverlay(true);
+  }
   applySendCapability(room, status);
 }
 
@@ -1000,27 +1011,128 @@ function spawnOverlay(msg) {
   node.addEventListener('animationend', () => node.remove(), { once: true });
 }
 
+/* ---------------- 观看偏好：按直播间记忆 ---------------- */
+
+// 每个直播间记住自己的音量、清晰度、线路、悬浮弹幕和弹幕四项样式，
+// 退出再回来、甚至重启 App 都不用重新调一遍。
+// 放 localStorage 而不是服务端：这些纯粹是本机的界面偏好，不值得进数据目录。
+const ROOM_PREFS_KEY = 'livehub:room-prefs:v1';
+const ROOM_PREFS_LIMIT = 300; // 只留最近用过的房间，避免关注多了之后无限膨胀
+
+function readRoomPrefs(key) {
+  if (!key) return null;
+  try {
+    const all = JSON.parse(localStorage.getItem(ROOM_PREFS_KEY) || '{}');
+    return all && !Array.isArray(all) && all[key] ? all[key] : null;
+  } catch {
+    return null;
+  }
+}
+
+/** 局部更新某个房间的偏好；没进直播间时（key 为空）静默跳过 */
+function patchRoomPrefs(key, patch) {
+  if (!key) return;
+  try {
+    const parsed = JSON.parse(localStorage.getItem(ROOM_PREFS_KEY) || '{}');
+    const all = parsed && !Array.isArray(parsed) ? parsed : {};
+    const prev = all[key] || {};
+    const next = { ...prev, ...patch };
+    // 弹幕四项是逐个调的，要合并而不是整块替换
+    if (patch.danmaku) next.danmaku = { ...(prev.danmaku || {}), ...patch.danmaku };
+    next.updatedAt = Date.now();
+    all[key] = next;
+    // 超上限就丢最久没进过的
+    const keys = Object.keys(all);
+    if (keys.length > ROOM_PREFS_LIMIT) {
+      const stale = keys
+        .sort((a, b) => (all[a].updatedAt || 0) - (all[b].updatedAt || 0))
+        .slice(0, keys.length - ROOM_PREFS_LIMIT);
+      for (const old of stale) delete all[old];
+    }
+    localStorage.setItem(ROOM_PREFS_KEY, JSON.stringify(all));
+  } catch {
+    /* 隐私模式下 localStorage 可能不可用，本次会话内仍然生效 */
+  }
+}
+
+const currentRoomKey = () => state.currentRoom?.key || '';
+
+/** 音量落在 0~1，脏数据不信任 */
+const clampVolume = (value) => {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return null;
+  return Math.min(1, Math.max(0, n));
+};
+
+/**
+ * 进入直播间时把上次的配置恢复回去。
+ * 没有记录的房间沿用全局默认值（以往的行为），不会因为改了这个功能就变样。
+ */
+function applyRoomPrefs(room) {
+  const prefs = readRoomPrefs(room.key) || {};
+  const video = $('#watchVideo');
+
+  // 弹幕样式：本房间的优先，没调过的房间用出厂默认值，
+  // 不带任何「上次调到哪」的历史包袱，房间之间互不串味
+  danmakuStyle = { ...DANMAKU_STYLE_DEFAULT, ...(prefs.danmaku || {}) };
+  applyDanmakuStyle();
+  syncDanmakuSettingsUI();
+
+  // 声音：调过的房间恢复当时的音量/静音；没调过就保持「先进去再说」的静音策略
+  if (typeof prefs.volume === 'number' || prefs.soundUserSet) {
+    player.applyingPrefs = true; // 自己写的不算用户改动，别回写覆盖
+    const volume = clampVolume(prefs.volume);
+    if (volume !== null) video.volume = volume;
+    video.muted = Boolean(prefs.muted);
+    player.soundUserSet = Boolean(prefs.soundUserSet);
+    setTimeout(() => {
+      player.applyingPrefs = false;
+    }, 0);
+  } else {
+    // 第一次进的房间回到出厂状态（满音量、静音起步），
+    // 不能让 video 元素把上一个房间调过的音量带过来
+    player.soundUserSet = false;
+    player.applyingPrefs = true;
+    video.volume = 1;
+    video.muted = true;
+    setTimeout(() => {
+      player.applyingPrefs = false;
+    }, 0);
+  }
+
+  // 线路（清晰度要等服务端返回可选档位后再套用，见 loadWatchRoom）
+  player.line = Number(prefs.line) || 0;
+  player.pendingOverlay = Boolean(prefs.overlay);
+  syncSoundUI();
+}
+
+/** 记住当前房间的声音设置 */
+function saveSoundPrefs() {
+  if (player.applyingPrefs) return; // 正在恢复记忆，别把记忆写回去
+  const video = $('#watchVideo');
+  patchRoomPrefs(currentRoomKey(), {
+    volume: clampVolume(video.volume) ?? 1,
+    muted: video.muted,
+    soundUserSet: player.soundUserSet,
+  });
+}
+
 /* ---------------- 悬浮弹幕设置 ---------------- */
 
-const DANMAKU_STYLE_KEY = 'livehub:danmaku-style';
+// 注：早期版本把弹幕样式存在 livehub:danmaku-style 这一全局键里，
+// 现在改为按直播间分别记忆（livehub:room-prefs:v1），旧键值不再读写，留在 localStorage 里无害。
 const DANMAKU_STYLE_DEFAULT = { opacity: 100, fontSize: 14, speed: 10, area: 'half' };
 let danmakuStyle = { ...DANMAKU_STYLE_DEFAULT };
 
 function loadDanmakuStyle() {
-  try {
-    danmakuStyle = { ...DANMAKU_STYLE_DEFAULT, ...JSON.parse(localStorage.getItem(DANMAKU_STYLE_KEY) || '{}') };
-  } catch {
-    danmakuStyle = { ...DANMAKU_STYLE_DEFAULT };
-  }
+  danmakuStyle = { ...DANMAKU_STYLE_DEFAULT };
 }
 
 function saveDanmakuStyle(patch) {
   danmakuStyle = { ...danmakuStyle, ...patch };
-  try {
-    localStorage.setItem(DANMAKU_STYLE_KEY, JSON.stringify(danmakuStyle));
-  } catch {
-    /* 隐私模式下 localStorage 可能不可用，本次会话内仍然生效 */
-  }
+  // 只记到当前直播间名下：不同房间的偏好互不干扰，
+  // 不去更新那个全局默认值，否则换个房间就把上一个房间的设置带过去了
+  patchRoomPrefs(currentRoomKey(), { danmaku: patch });
   applyDanmakuStyle();
   syncDanmakuSettingsUI();
 }
@@ -1148,7 +1260,9 @@ function showQualityHint(text) {
 
 async function loadWatchRoom(room, options = {}) {
   const requestId = ++player.requestId;
-  const preferred = options.quality ?? readQualityPreference(room.platform);
+  // 优先用这个直播间上次选的清晰度，其次才是同平台的通用偏好
+  const preferred =
+    options.quality ?? readRoomPrefs(room.key)?.quality ?? readQualityPreference(room.platform);
   clearPlayerEngine();
   showPlayerMessage('正在获取直播流…');
 
@@ -1185,6 +1299,16 @@ async function loadWatchRoom(room, options = {}) {
     player.quality = data.quality || player.qualities[0]?.id || '';
     player.qualityMode = data.qualityMode || 'remote';
     player.streams = Array.isArray(data.streams) ? data.streams : [];
+    // 抖音这类在前端过滤档位的平台，清晰度参数不会发给服务端，
+    // 上次选过什么只能这里补回去
+    const rememberedQuality = readRoomPrefs(room.key)?.quality;
+    if (
+      player.qualityMode === 'local' &&
+      rememberedQuality &&
+      player.qualities.some((q) => q.id === rememberedQuality)
+    ) {
+      player.quality = rememberedQuality;
+    }
 
     renderQualityControls();
     showQualityHint(data.qualityNote || '');
@@ -1212,6 +1336,7 @@ async function changeQuality(quality) {
   const room = state.currentRoom;
   if (!room) return;
   saveQualityPreference(room.platform, quality);
+  patchRoomPrefs(room.key, { quality });
   if (player.qualityMode === 'local') {
     player.quality = quality;
     renderQualityControls();
@@ -1333,6 +1458,7 @@ function setDanmakuOverlay(enabled) {
   // 「弹」字按钮：开启时高亮，关闭时压一道斜杠（样式在 CSS 里）
   $('#toggleOverlay').classList.toggle('is-on', enabled);
   $('#toggleOverlay').title = enabled ? '关闭悬浮弹幕' : '开启悬浮弹幕';
+  patchRoomPrefs(currentRoomKey(), { overlay: enabled });
 }
 
 /* ---------------- 控制条弹出层 ---------------- */
@@ -1723,6 +1849,7 @@ async function init() {
     if (!button) return;
     closePlayerPopovers();
     player.line = Number(button.dataset.line);
+    patchRoomPrefs(currentRoomKey(), { line: player.line });
     renderQualityControls();
     playStream(currentQualityStreams()[player.line]);
   });
@@ -1825,7 +1952,11 @@ async function init() {
   $('#danmakuInput').addEventListener('input', syncSendButton);
   // 图标版按钮不能再写 textContent——那会把整个 SVG 冲掉，按钮直接变回文字。
   // 统一的图标/状态同步都在 syncSoundUI() 里。
-  $('#watchVideo').addEventListener('volumechange', syncSoundUI);
+  // 音量/静音的任何变化（滑块、按钮、系统快捷键）都记到当前直播间名下
+  $('#watchVideo').addEventListener('volumechange', () => {
+    syncSoundUI();
+    saveSoundPrefs();
+  });
   $('#clearAll').addEventListener('click', async () => {
     if (!state.rooms.length || !confirm(`确定清空全部 ${state.rooms.length} 个房间？`)) return;
     try {
