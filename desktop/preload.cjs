@@ -6,8 +6,9 @@ contextBridge.exposeInMainWorld('livehub', {
   electron: process.versions.electron,
   chrome: process.versions.chrome,
   platform: process.platform,
-  /** 打开该平台的官方登录页，登录成功后主进程会自动把 cookie 同步给本地服务 */
-  login: (platform) => ipcRenderer.invoke('livehub:login', platform),
+  /** 打开该平台的官方登录页，登录成功后主进程会自动把 cookie 同步给本地服务。
+   *  传 { reload: true } 时即使窗口已经开着也会重新加载登录页 */
+  login: (platform, options) => ipcRenderer.invoke('livehub:login', platform, options),
   /** 退出登录：清空该平台分区下的 cookie，并删掉服务端账号 */
   logout: (platform) => ipcRenderer.invoke('livehub:logout', platform),
   /** 手动再同步一次（登录窗口以外的场景，比如页面刷新后） */

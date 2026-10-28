@@ -1587,8 +1587,10 @@ function renderAccountList() {
             account.cookieCount ? ` · ${account.cookieCount} 项 Cookie` : ''
           }`
         : '未登录 · 原画与部分弹幕受限';
+      // 已登录也给一个「重登」入口：登录态过期时不用先退出再来一次
       const action = account.loggedIn
-        ? `<button type="button" class="danger" data-logout="${account.platform}">退出</button>`
+        ? `<button type="button" data-login="${account.platform}" data-relogin="1" title="登录态过期时可重新扫码">重登</button>
+           <button type="button" class="danger" data-logout="${account.platform}">退出</button>`
         : `<button type="button" class="primary" data-login="${account.platform}">登录</button>`;
       return `
         <div class="account-card ${account.loggedIn ? 'is-on' : ''}">
@@ -1615,16 +1617,17 @@ function closeAccounts() {
   $('#accountMask').hidden = true;
 }
 
-async function loginPlatform(platform) {
+async function loginPlatform(platform, options = {}) {
   const account = state.accounts.find((item) => item.platform === platform);
 
   // 桌面端：开一个平台登录窗口，登录完成会自动把 cookie 同步过来
   if (window.livehub?.login) {
     try {
-      const result = await window.livehub.login(platform);
-      if (!result?.ok) toast(result?.error || '无法打开登录窗口');
+      const result = await window.livehub.login(platform, options);
+      if (!result?.ok) return toast(result?.error || '无法打开登录窗口');
+      if (options.reload) toast(`已重新打开${account?.name || platform}登录窗口`);
     } catch (error) {
-      toast(error.message || '登录窗口打开失败');
+      return toast(error.message || '登录窗口打开失败');
     }
     return;
   }
@@ -1749,7 +1752,7 @@ async function init() {
   });
   $('#accountList').addEventListener('click', (event) => {
     const login = event.target.closest('[data-login]');
-    if (login) return loginPlatform(login.dataset.login);
+    if (login) return loginPlatform(login.dataset.login, { reload: login.dataset.relogin === '1' });
     const logout = event.target.closest('[data-logout]');
     if (logout) return logoutPlatform(logout.dataset.logout);
     return undefined;

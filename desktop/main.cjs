@@ -41,6 +41,10 @@ const PLATFORM_META = {
     loginUrl: 'https://www.douyin.com/',
     domain: 'douyin.com',
     authCookies: ['sessionid', 'sessionid_ss'],
+    // 首页要再点一下「登录」才弹二维码，这里让打开即到位
+    loginEntryWords: ['登录'],
+    // 面板里二维码和验证码是并排的，窗口窄了右侧会被截断（实测 520 不够）
+    loginSize: { width: 740, height: 860 },
   },
 };
 
@@ -126,20 +130,107 @@ async function syncAllAccounts() {
   }
 }
 
+/** URL 是否还在该平台的站点内 */
+function isPlatformPage(platform, url) {
+  try {
+    const host = new URL(url).hostname.replace(/^\./, '').toLowerCase();
+    const base = PLATFORM_META[platform].domain;
+    return host === base || host.endsWith(`.${base}`);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * 把窗口可靠地带到前台。
+ * 这是「第二次点登录打不开」的根因：focus() 对隐藏或最小化的窗口不生效，
+ * 必须自己 show()/restore()，否则用户点了登录什么也不会出现。
+ */
+function revealWindow(win) {
+  if (win.isDestroyed()) return;
+  if (win.isMinimized()) win.restore();
+  if (win.isVisible()) win.focus();
+  else win.show(); // show() 会自带聚焦
+  // macOS 上窗口还可能藏在别的 App 后面，要把整个应用拉到前台
+  if (process.platform === 'darwin') app.focus({ steal: true });
+  else win.moveTop();
+}
+
+/** 登录页加载不出来时的兜底页，避免用户对着白屏 */
+function loginFailurePage(meta, reason) {
+  const html = `<!doctype html><meta charset="utf-8">
+  <body style="margin:0;height:100vh;display:flex;align-items:center;justify-content:center;
+       background:#14161b;color:#d7dae2;font:14px/1.7 -apple-system,'PingFang SC',sans-serif">
+    <div style="max-width:340px;text-align:center">
+      <div style="font-size:15px;font-weight:600;margin-bottom:8px">打不开 ${meta.name} 的登录页</div>
+      <div style="color:#8b90a0;font-size:12.5px">${reason}</div>
+      <div style="color:#8b90a0;font-size:12.5px;margin-top:12px">
+        检查网络后，回到 LiveHub 再点一次「登录」。
+      </div>
+    </div></body>`;
+  return `data:text/html;charset=utf-8,${encodeURIComponent(html)}`;
+}
+
+/**
+ * 抖音这类首页不会直接显示二维码，要先点一下「登录」才弹出面板（试过
+ * /passport/ 这种直链，会被 ERR_FAILED 拒掉），这里帮忙点开。
+ */
+function autoOpenLoginPanel(win, platform) {
+  const words = PLATFORM_META[platform].loginEntryWords;
+  if (!words) return () => {};
+  let tries = 0;
+  const timer = setInterval(async () => {
+    if (win.isDestroyed() || tries >= 8) return clearInterval(timer);
+    tries += 1;
+    try {
+      // 已经登录就停止，别把登录后的页面再点乱
+      if (await hasAuthCookie(platform)) return clearInterval(timer);
+      const clicked = await win.webContents.executeJavaScript(`(() => {
+        if (document.querySelector('[class*="qrcode" i], [class*="qr-code" i]')) return 'panel-open';
+        const words = ${JSON.stringify(words)};
+        const hit = [...document.querySelectorAll('a, button, [role="button"], span, div')].find((node) => {
+          const text = (node.innerText || node.textContent || '').trim();
+          if (!text || text.length > 10) return false;
+          if (!words.some((word) => text === word || text.startsWith(word))) return false;
+          if (node.offsetParent === null) return false;
+          const rect = node.getBoundingClientRect();
+          if (rect.top < 0 || rect.width < 24 || rect.height < 16) return false;
+          return getComputedStyle(node).visibility !== 'hidden';
+        });
+        if (!hit) return null;
+        hit.click();
+        return 'clicked';
+      })()`);
+      if (clicked) clearInterval(timer);
+    } catch {
+      /* 页面还在跳转，下一轮再试 */
+    }
+  }, 1200);
+  return () => clearInterval(timer);
+}
+
 /** 打开平台官方登录页；检测到登录 cookie 后自动同步并关窗 */
-function openLogin(platform) {
+async function openLogin(platform, options = {}) {
   const meta = PLATFORM_META[platform];
   if (!meta) return { ok: false, error: '未知平台' };
+  const wantReload = Boolean(options.reload);
 
+  // 窗口还在（可能上一次卡在空白页，或被 window.open 带到了别的站点）：
+  // 复用它，必要时重新导航回登录页——这正是「第二次点登录没反应」的场景
   const existing = loginWindows.get(platform);
   if (existing && !existing.isDestroyed()) {
-    existing.focus();
+    revealWindow(existing);
+    const current = existing.webContents.getURL();
+    if (wantReload || !isPlatformPage(platform, current)) {
+      existing.loadURL(meta.loginUrl).catch(() => {});
+      return { ok: true, reused: true, reloaded: true };
+    }
     return { ok: true, reused: true };
   }
 
   const win = new BrowserWindow({
-    width: 520,
-    height: 720,
+    width: meta.loginSize?.width || 620,
+    height: meta.loginSize?.height || 780,
     minWidth: 420,
     minHeight: 560,
     title: `登录 ${meta.name}`,
@@ -154,26 +245,64 @@ function openLogin(platform) {
     },
   });
   loginWindows.set(platform, win);
-  win.once('ready-to-show', () => win.show());
 
-  // 平台的登录页偶尔会 window.open 出扫码窗，允许在同一个窗口里打开
+  // 抖音首页很重，网络慢时 ready-to-show 迟迟不来，窗口会一直不显示。
+  // 加个兜底：超时就直接显示，宁可看到加载中也别让用户以为没反应。
+  let shown = false;
+  const markShown = () => {
+    if (shown || win.isDestroyed()) return;
+    shown = true;
+    win.show();
+  };
+  win.once('ready-to-show', () => {
+    clearTimeout(showFallback);
+    markShown();
+  });
+  const showFallback = setTimeout(() => {
+    clearTimeout(showFallback);
+    markShown();
+  }, 1500);
+
+  win.webContents.on('did-fail-load', (_event, code, desc, url, isMainFrame) => {
+    // -3 = 加载被中断（用户或代码主动取消），不用提示
+    if (!isMainFrame || code === -3 || win.isDestroyed()) return;
+    console.error(`[login] ${platform} 加载失败: ${desc} (${code}) ${url}`);
+    clearTimeout(showFallback);
+    markShown();
+    win.loadURL(loginFailurePage(meta, `${desc}（${code}）`)).catch(() => {});
+  });
+
+  // 平台的登录页偶尔会 window.open 出扫码窗 / 验证码页，默认在当前窗口里打开
   win.webContents.setWindowOpenHandler(({ url }) => {
-    win.loadURL(url);
+    if (!url || url === 'about:blank') return { action: 'deny' };
+    if (url.startsWith('http://') || url.startsWith('https://')) {
+      win.loadURL(url).catch(() => {});
+      return { action: 'deny' };
+    }
+    // 自定义协议（各类 App 唤起）交给系统，自己加载会直接失败
+    shell.openExternal(url);
     return { action: 'deny' };
   });
+
+  const stopAutoClick = autoOpenLoginPanel(win, platform);
+
+  // 打开前就已有登录态时不能自动关窗：用户点登录常常就是想换号或补登，
+  // 一检测到历史 cookie 就秒关会很莫名。这时保持开着让用户操作，
+  // 他自己关窗时下面的 closed 回调照样会把最新 cookie 同步过去。
+  const hadAuthAtStart = await hasAuthCookie(platform).catch(() => false);
 
   const timer = setInterval(async () => {
     if (win.isDestroyed()) return;
     try {
-      if (await hasAuthCookie(platform)) {
-        clearInterval(timer);
-        await syncAccount(platform).catch((err) =>
-          console.error(`[accounts] ${platform} 同步失败:`, err.message),
-        );
-        setTimeout(() => {
-          if (!win.isDestroyed()) win.close();
-        }, 600);
-      }
+      if (!(await hasAuthCookie(platform))) return;
+      if (hadAuthAtStart) return; // 打开前就登录着：留着窗口，不抢关
+      clearInterval(timer);
+      await syncAccount(platform).catch((err) =>
+        console.error(`[accounts] ${platform} 同步失败:`, err.message),
+      );
+      setTimeout(() => {
+        if (!win.isDestroyed()) win.close();
+      }, 600);
     } catch {
       /* 页面还没加载完时忽略 */
     }
@@ -181,6 +310,8 @@ function openLogin(platform) {
 
   win.on('closed', async () => {
     clearInterval(timer);
+    clearTimeout(showFallback);
+    stopAutoClick();
     loginWindows.delete(platform);
     // 用户手动关窗也再同步一次，避免「登录了但没检测到」的情况
     try {
@@ -191,7 +322,12 @@ function openLogin(platform) {
     mainWindow?.webContents.send('livehub:accounts-changed');
   });
 
-  win.loadURL(meta.loginUrl);
+  win.loadURL(meta.loginUrl).catch((err) => {
+    console.error(`[login] ${platform} 初始加载失败:`, err.message);
+    clearTimeout(showFallback);
+    markShown();
+    win.loadURL(loginFailurePage(meta, err.message)).catch(() => {});
+  });
   return { ok: true };
 }
 
@@ -209,7 +345,9 @@ async function logout(platform) {
 }
 
 function registerIpc() {
-  ipcMain.handle('livehub:login', (_event, platform) => openLogin(String(platform)));
+  ipcMain.handle('livehub:login', (_event, platform, options) =>
+    openLogin(String(platform), options || {}),
+  );
   ipcMain.handle('livehub:logout', (_event, platform) => logout(String(platform)));
   ipcMain.handle('livehub:sync-account', (_event, platform) => syncAccount(String(platform)));
   shadow.registerShadowIpc();
