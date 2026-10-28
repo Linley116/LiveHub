@@ -46,6 +46,9 @@ const player = {
   lastTime: null,
   // 连续拿到「短分片」的次数，连续多次就退回官方页
   shortStreams: 0,
+  // 用来区分「分片流结束」和「HLS 时长正常增长」
+  lastDuration: -1,
+  durationStableAt: 0,
 };
 
 const escapeHTML = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => ({
@@ -541,6 +544,8 @@ async function enterWatchRoom(room) {
   // 恢复这个直播间上次的声音、线路、弹幕设置（清晰度要等服务端返回档位后再套用）。
   // 偏好存在服务端，第一次要先把它们拉回来，不然后面 apply 到的是空数据。
   player.shortStreams = 0;
+  player.lastDuration = -1;
+  player.durationStableAt = 0;
   await loadRoomPrefs();
   applyRoomPrefs(room);
   $('#playerMessage').classList.remove('is-hidden', 'is-error');
@@ -1395,8 +1400,21 @@ function startPlayWatchdog() {
     // 虎牙的 FLV 连接会被服务端在固定时长后关掉（实测 127.7s），
     // duration 从 Infinity 变成有限值就是信号。播到末尾如果不做处理，
     // 播放器会 seek 回 0 重播 —— 这就是「看几分钟倒退回几分钟前、延迟 100s」。
-    const finite = Number.isFinite(duration) && duration > 0 && duration < 600;
-    if (finite && video.currentTime >= duration - 0.6) {
+    //
+    // 但不能只看「duration 有限」：B站的 HLS 直播 duration 也是有限值，
+    // 只不过它会一直增长（17→77→137→197…）。所以再加一条「duration 停住不动」，
+    // 才算是分片流真的结束了。
+    if (duration !== player.lastDuration) {
+      player.lastDuration = duration;
+      player.durationStableAt = Date.now();
+    }
+    const finite =
+      Number.isFinite(duration) &&
+      duration > 0 &&
+      duration < 600 &&
+      Date.now() - (player.durationStableAt || 0) > 12000 &&
+      video.currentTime >= duration - 1.5;
+    if (finite) {
       stopPlayWatchdog();
       handleFiniteStream(duration);
       return;
