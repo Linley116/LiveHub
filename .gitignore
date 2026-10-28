@@ -5,3 +5,7 @@ data/
 *.log
 dist/
 .workbuddy/
+
+# 本地产品文档，不公开
+PRD.md
+PRODUCT_MEMORY.md
