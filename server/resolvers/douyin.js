@@ -4,6 +4,10 @@ import { applyAccount } from '../accounts.js';
 
 const jar = new CookieJar();
 let sessionReady = null;
+let sessionAt = 0;
+// ttwid 会过期，而且首次拿不到页面时不能把失败结果一直缓存着——
+// 否则一次网络抖动会让之后所有解析都走空会话，表现就是「抖音时好时坏」。
+const SESSION_TTL = 30 * 60 * 1000;
 
 export const meta = { id: 'douyin', name: '抖音', color: '#00f2ea' };
 
@@ -33,21 +37,29 @@ const QUALITY_LABEL = {
   ORIGION: '原画',
 };
 
-async function ensureSession(roomId) {
-  if (!sessionReady) {
-    sessionReady = request(`https://live.douyin.com/${roomId || ''}`, {
-      jar,
-      headers: { Referer: 'https://live.douyin.com/' },
-    }).catch(() => null);
-  }
+async function ensureSession(roomId, { force = false } = {}) {
+  const fresh = sessionReady && Date.now() - sessionAt < SESSION_TTL;
+  if (fresh && !force) return sessionReady;
+
+  sessionAt = Date.now();
+  sessionReady = request(`https://live.douyin.com/${roomId || ''}`, {
+    jar,
+    headers: { Referer: 'https://live.douyin.com/' },
+  })
+    .catch(() => null)
+    .then((res) => {
+      if (!res) {
+        // 拿不到页面就把缓存作废，下次进来重新握手，而不是一直用坏会话
+        sessionReady = null;
+        sessionAt = 0;
+      }
+      return res;
+    });
   return sessionReady;
 }
 
-export async function resolve(roomId, opts = {}) {
-  const rid = String(roomId).trim();
-  await ensureSession(rid);
-  applyAccount('douyin', jar);
-
+/** 请求 enter 接口；返回 null 表示没拿到房间数据（风控/会话失效都长这样） */
+async function fetchEnter(rid) {
   const qs = new URLSearchParams({ ...ENTER_PARAMS, web_rid: rid });
   const res = await getJSON(`https://live.douyin.com/webcast/room/web/enter/?${qs}`, {
     jar,
@@ -56,10 +68,24 @@ export async function resolve(roomId, opts = {}) {
       Accept: 'application/json, text/plain, */*',
     },
   });
+  return res?.data?.data?.[0] ? res : null;
+}
 
-  const room = res?.data?.data?.[0];
-  if (!room) throw new Error('房间不存在，或抖音触发了风控验证');
+export async function resolve(roomId, opts = {}) {
+  const rid = String(roomId).trim();
+  await ensureSession(rid);
+  applyAccount('douyin', jar);
 
+  let res = await fetchEnter(rid);
+  if (!res) {
+    // 十有八九是 ttwid 过期或被风控拦了一次：重握手再试一遍，能自愈绝大多数偶发失败
+    await ensureSession(rid, { force: true });
+    applyAccount('douyin', jar);
+    res = await fetchEnter(rid);
+  }
+  if (!res) throw new Error('房间不存在，或抖音触发了风控验证');
+
+  const room = res.data.data[0];
   const user = res?.data?.user || {};
   const live = Number(room.status) === 2;
 

@@ -42,6 +42,10 @@ const player = {
   applyingPrefs: false,
   // 悬浮弹幕要等弹幕通道就绪才能开，先记着（undefined = 这次不用恢复）
   pendingOverlay: undefined,
+  // 看门狗用来判断播放位置是否倒退
+  lastTime: null,
+  // 连续拿到「短分片」的次数，连续多次就退回官方页
+  shortStreams: 0,
 };
 
 const escapeHTML = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => ({
@@ -536,6 +540,7 @@ async function enterWatchRoom(room) {
   player.platform = room.platform;
   // 恢复这个直播间上次的声音、线路、弹幕设置（清晰度要等服务端返回档位后再套用）。
   // 偏好存在服务端，第一次要先把它们拉回来，不然后面 apply 到的是空数据。
+  player.shortStreams = 0;
   await loadRoomPrefs();
   applyRoomPrefs(room);
   $('#playerMessage').classList.remove('is-hidden', 'is-error');
@@ -1367,36 +1372,111 @@ async function changeQuality(quality) {
  * 2. 虎牙已把 FLV 端点改成「一次性切片」——duration 是个有限值，播完就停，
  *    这种情况反复 play() 没有意义，改成说明原因并切到内嵌平台官方页。
  */
+// 直播位置落后直播点超过这个值就主动追回去。
+// mpegts 自带的 liveBufferLatencyChasing 在部分流上不生效（实测虎牙会累积到上百秒），
+// 这里做一个不依赖播放器实现的兜底。
+const LIVE_LAG_LIMIT = 8;
+
+/** 直播点：取 seekable/buffered 最后一个区间的末尾 */
+function liveEdgeOf(video) {
+  const ranges = video.seekable && video.seekable.length ? video.seekable : video.buffered;
+  if (!ranges || !ranges.length) return 0;
+  return ranges.end(ranges.length - 1);
+}
+
 function startPlayWatchdog() {
   stopPlayWatchdog();
+  player.lastTime = null;
   player.watchdog = setInterval(() => {
     const video = $('#watchVideo');
     if (!video || !state.currentRoom) return;
 
     const duration = Number(video.duration);
-    const finite = Number.isFinite(duration) && duration > 0 && duration < 120;
-    if (finite && video.currentTime >= duration - 0.4) {
+    // 虎牙的 FLV 连接会被服务端在固定时长后关掉（实测 127.7s），
+    // duration 从 Infinity 变成有限值就是信号。播到末尾如果不做处理，
+    // 播放器会 seek 回 0 重播 —— 这就是「看几分钟倒退回几分钟前、延迟 100s」。
+    const finite = Number.isFinite(duration) && duration > 0 && duration < 600;
+    if (finite && video.currentTime >= duration - 0.6) {
       stopPlayWatchdog();
       handleFiniteStream(duration);
       return;
     }
 
     if (video.paused && video.readyState >= 3) video.play().catch(() => {});
+
+    const edge = liveEdgeOf(video);
+    if (!edge) { player.lastTime = video.currentTime; return; }
+
+    // 播放位置倒退（流被重新加载 / buffer 被清掉后回到旧位置）：直接拉回直播点。
+    // 这是「看了几分钟突然退回几分钟前」的那个症状，不管上游怎么变，位置不能往回走。
+    if (player.lastTime !== null && video.currentTime < player.lastTime - 5 && video.currentTime < edge - 5) {
+      console.warn('[player] 播放位置倒退', player.lastTime.toFixed(1), '→', video.currentTime.toFixed(1));
+      if (Number.isFinite(duration) && duration > 0) {
+        // 分片流从头重播：seek 回切片末尾没有意义（那里没新数据了），只能重新取流
+        stopPlayWatchdog();
+        reconnectLiveStream('播放位置回退，正在重新连接…');
+        return;
+      }
+      video.currentTime = Math.max(0, edge - 0.5);
+      player.lastTime = video.currentTime;
+      return;
+    }
+
+    // 缓冲越积越多（延迟持续增大）：追到直播点附近，别让延迟无限累积
+    if (edge - video.currentTime > LIVE_LAG_LIMIT) {
+      video.currentTime = Math.max(0, edge - 0.5);
+    }
+    player.lastTime = video.currentTime;
   }, 2500);
 }
 
-function handleFiniteStream(duration) {
+// 重连节流：分片流会周期性结束，别让重连本身变成风暴
+let lastReconnectAt = 0;
+
+/**
+ * 分片流结束（或播放位置往回跳）时重新取流。
+ * 以前是直接切到内嵌官方页——但那等于放弃原生播放器；
+ * 实测虎牙每段约 127s，重连一次只要 1~2 秒，比倒退两分钟强得多。
+ */
+async function reconnectLiveStream(reason) {
   const room = state.currentRoom;
-  $('#playerStatus').textContent = '线路已结束';
-  showQualityHint(
-    `这条线路只下发了 ${Math.round(duration)} 秒就结束——平台已经把直播流改成一次性分片，` +
-      `原生播放器拿不到连续流。${IS_DESKTOP ? '已切到 LiveHub 内嵌的虎牙官方页。' : '请在桌面端 LiveHub 中使用内嵌官方页观看。'}`,
-  );
-  if (IS_DESKTOP && room) {
-    setTimeout(() => {
-      if (state.currentRoom?.key === room.key && !$('#watchPage').hidden) setViewMode('platform');
-    }, 900);
+  if (!room) return;
+  if (Date.now() - lastReconnectAt < 2500) return;
+  lastReconnectAt = Date.now();
+
+  player.shortStreams = (player.shortStreams || 0) + 1;
+  // 连续几次都只给很短的片段，说明这条线路质量不行，退回官方页
+  if (player.shortStreams >= 4) {
+    handleFiniteStream(0, '连续多次只拿到很短的片段');
+    return;
   }
+
+  showQualityHint(reason || '正在重新连接直播流…');
+  player.line = 0;
+  await loadWatchRoom(room);
+}
+
+function handleFiniteStream(duration, note) {
+  const room = state.currentRoom;
+  if (!room) return;
+
+  // 片段太短（< 90s）说明重连也看不了几秒，直接给官方页兜底
+  if (duration && duration < 90 && IS_DESKTOP) {
+    player.shortStreams = 4;
+  }
+  if (player.shortStreams >= 4) {
+    $('#playerStatus').textContent = '线路不稳定';
+    showQualityHint(
+      `${note || `这条线路一次只下发 ${Math.round(duration)} 秒`}，会自动切到内嵌的虎牙官方页。`,
+    );
+    if (IS_DESKTOP) {
+      setTimeout(() => {
+        if (state.currentRoom?.key === room.key && !$('#watchPage').hidden) setViewMode('platform');
+      }, 900);
+    }
+    return;
+  }
+  reconnectLiveStream(`线路分片结束（${Math.round(duration)}s），正在重新连接…`);
 }
 
 function stopPlayWatchdog() {
@@ -1437,8 +1517,12 @@ function playStream(stream) {
       hls.attachMedia(video);
       hls.on(Hls.Events.MANIFEST_PARSED, ready);
       hls.on(Hls.Events.ERROR, (_event, data) => {
-        if (data?.fatal) showPlayerMessage('直播线路中断，请点击「重连」', 'error');
-        else console.warn('[hls]', data?.details, data?.reason || '');
+        if (!data?.fatal) return void console.warn('[hls]', data?.details, data?.reason || '');
+        // 抖音这类流的地址有效期有限，播久了会 manifest/分片失败；
+        // 直接重新解析取一份新地址，比让用户手动点「重连」强
+        console.warn('[hls] 致命错误，尝试自动重连:', data?.details);
+        showPlayerMessage('直播流中断，正在自动重连…', 'error');
+        reconnectLiveStream('直播流中断，正在自动重连…');
       });
     } else {
       video.src = stream.url;
@@ -1976,6 +2060,10 @@ async function init() {
   for (const event of ['loadedmetadata', 'resize']) {
     $('#watchVideo').addEventListener(event, syncPlayerAspect);
   }
+  // FLV/HLS 之外的底层错误（地址过期、连接被掐）也走同一条自愈路径
+  $('#watchVideo').addEventListener('error', () => {
+    if (state.currentRoom) reconnectLiveStream('播放出错，正在自动重连…');
+  });
   // 播放器尺寸是按「可用区域 + 视频比例」算出来的，窗口一变就得重算
   window.addEventListener('resize', syncPlayerAspect);
   setupPlayerBarAutoHide();
