@@ -19,8 +19,11 @@ button { cursor: pointer; color: inherit; }
 a { color: inherit; text-decoration: none; }
 button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
-.hub-shell { height: 100dvh; display: grid; grid-template-columns: 250px minmax(0, 1fr); background: var(--page); }
-.roster { min-height: 0; display: flex; flex-direction: column; padding: 22px 14px 14px; background: #15181e; border-right: 1px solid var(--line); }
+.hub-shell { height: 100dvh; display: grid; grid-template-columns: 250px minmax(0, 1fr); background: var(--page); transition: grid-template-columns .28s cubic-bezier(.4, 0, .2, 1); }
+/* 进观看页后把左侧主播栏收起来：看直播是沉浸场景，250px 让给视频更值 */
+.hub-shell.is-watching { grid-template-columns: 0 minmax(0, 1fr); }
+.hub-shell.is-watching .roster { opacity: 0; pointer-events: none; transform: translateX(-14px); }
+.roster { min-height: 0; display: flex; flex-direction: column; overflow: hidden; padding: 22px 14px 14px; background: #15181e; border-right: 1px solid var(--line); transition: opacity .2s ease, transform .24s cubic-bezier(.4, 0, .2, 1); }
 .brand { display: flex; align-items: center; gap: 11px; padding: 2px 7px 19px; }
 .brand-mark { display: grid; place-items: center; width: 36px; height: 36px; border-radius: 12px; color: #10150c; background: var(--accent); font-size: 20px; font-weight: 800; box-shadow: 0 8px 25px -16px var(--accent); }
 .brand-copy { display: flex; flex-direction: column; line-height: 1.2; }
@@ -215,7 +218,14 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 [hidden] { display: none !important; }
 /* 观看页本身已经在 hub-shell 里占满视口高度，这里改成纵向 flex，
    让下面的内容区把剩余高度吃干净，不留一块空白。所有尺寸都由视口推出来，不写死 px。 */
-.watch-page { min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow-y: auto; padding: 18px clamp(14px, 3vw, 42px) 24px; background: radial-gradient(ellipse at 65% 0, rgba(181,237,134,.045), transparent 34%), #101216; }
+.watch-page { position: relative; min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow-y: auto; padding: 18px clamp(14px, 3vw, 42px) 24px; background: radial-gradient(ellipse at 65% 0, rgba(181,237,134,.045), transparent 34%), #101216; }
+/* 封面铺底 + 强模糊，再压一层暗罩，避免抢走中间画面的注意力 */
+.watch-backdrop { position: absolute; inset: 0; z-index: 0; pointer-events: none; background-position: center; background-size: cover; background-repeat: no-repeat; filter: blur(72px) saturate(1.8) brightness(.9); opacity: 0; transition: opacity .45s ease; }
+.watch-backdrop.is-on { opacity: .62; }
+/* 暗罩要克制：盖太狠就只剩纯色，失去铺底的意义；只压到不抢中间画面即可 */
+.watch-backdrop::after { content: ''; position: absolute; inset: 0; background: linear-gradient(180deg, rgba(16,18,22,.42), rgba(16,18,22,.8)); }
+/* 所有内容抬到背景之上 */
+.watch-page > header, .watch-page > .watch-content { position: relative; z-index: 1; }
 .watch-header { width: 100%; max-width: 1480px; display: flex; align-items: center; justify-content: space-between; margin: 0 auto 21px; padding-bottom: 13px; border-bottom: 1px solid var(--line); }
 .back-button { display: inline-flex; align-items: center; gap: 8px; padding: 7px 10px; border: 1px solid #30343d; border-radius: 9px; color: #c1c5ce; background: #191c22; font-size: 12px; }
 .back-button:hover { color: #fff; border-color: #484d59; }
@@ -233,10 +243,10 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .watch-room-copy p { margin: 4px 0 0; color: #9ba1ac; font-size: 12px; }
 .watch-category { margin-left: auto; color: #969ca7; font-size: 11.5px; }
 /* min-height:0 一路往下传，否则 flex 子项会以内容高度为下限、填不满也不肯缩 */
-.watch-layout { flex: 1 1 auto; min-height: 0; display: grid; grid-template-columns: minmax(0, 1.8fr) minmax(300px, .72fr); align-items: stretch; gap: 17px; }
+.watch-layout { flex: 1 1 auto; min-height: 0; display: grid; grid-template-columns: minmax(0, 2.2fr) minmax(292px, .7fr); align-items: stretch; gap: 17px; }
 .player-column { min-width: 0; min-height: 0; display: flex; flex-direction: column; justify-content: center; }
 /* container-type 供下面的控制条分级收缩查询（按播放器自身宽度，而不是窗口宽度） */
-.watch-player { position: relative; width: 100%; flex: none; aspect-ratio: 16 / 9; display: grid; place-items: center; overflow: hidden; container-type: inline-size; border: 1px solid #30343d; border-radius: 14px; background: #050608; box-shadow: 0 22px 65px -38px #000; }
+.watch-player { position: relative; width: 100%; flex: none; aspect-ratio: 16 / 9; display: grid; place-items: center; overflow: hidden; container-type: inline-size; border: 1px solid #343945; border-radius: 16px; background: #050608; box-shadow: 0 40px 90px -38px #000, 0 2px 10px -4px rgba(0,0,0,.6); }
 .watch-player video { width: 100%; height: 100%; display: block; object-fit: contain; background: #050608; }
 .player-message { position: absolute; inset: 0; z-index: 2; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 24px; color: #c1c5ce; background: rgba(5,6,8,.9); text-align: center; font-size: 13px; }
 .player-message.is-hidden { display: none; }
@@ -332,7 +342,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
  * 这样网格行高就只由左侧播放器列决定 —— 否则弹幕越多行越高，整个页面被拽长。
  */
 .danmaku-column { position: relative; min-width: 0; min-height: 410px; }
-.danmaku-panel { position: absolute; inset: 0; min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow: hidden; border: 1px solid #2d313a; border-radius: 14px; background: #191c23; }
+.danmaku-panel { position: absolute; inset: 0; min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow: hidden; border: 1px solid rgba(255,255,255,.055); border-radius: 16px; background: rgba(21,24,30,.94); backdrop-filter: blur(14px); box-shadow: 0 30px 70px -40px #000; }
 .danmaku-header { flex: none; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 15px 15px 12px; border-bottom: 1px solid rgba(255,255,255,.065); }
 .danmaku-header h2 { margin: 0; color: #e8eaf0; font-size: 14px; font-weight: 650; }
 .danmaku-header p { margin: 4px 0 0; color: #9298a3; font-size: 11px; }

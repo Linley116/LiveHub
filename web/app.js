@@ -418,6 +418,8 @@ function stopWatchRoom() {
   player.qualityMode = 'remote';
   state.currentRoom = null;
   $('#danmakuOverlay').replaceChildren();
+  $('#hubShell')?.classList.remove('is-watching');
+  setWatchBackdrop(null);
   $('#catalog').hidden = false;
   $('#watchPage').hidden = true;
   render();
@@ -450,9 +452,21 @@ function setWatchAvatar(room) {
   }
 }
 
+/** 观看页底图：用直播间封面做模糊铺底，纯背景色太寡 */
+function setWatchBackdrop(room) {
+  const node = $('#watchBackdrop');
+  if (!node) return;
+  const cover = room?.cover ? String(room.cover).replace(/["'()]/g, '') : '';
+  node.style.backgroundImage = cover ? `url("${cover}")` : '';
+  node.classList.toggle('is-on', Boolean(cover));
+}
+
 async function enterWatchRoom(room) {
   if (!room) return;
   if (state.currentRoom?.key === room.key && !$('#watchPage').hidden) return;
+  // 看直播是沉浸场景，收起左侧主播栏把宽度让给画面（「主播目录」按钮可返回）
+  $('#hubShell')?.classList.add('is-watching');
+  setWatchBackdrop(room);
   clearOfflineTimer();
   clearPlayerEngine();
   player.requestId += 1;
@@ -490,6 +504,7 @@ async function enterWatchRoom(room) {
   $('#danmakuForm button').textContent = '发送';
   // 换房间先把比例还原成 CSS 默认值，免得上一个房间的尺寸留在这儿
   $('#watchPlayer').style.aspectRatio = '';
+  setWatchBackdrop(room); // 封面可能是这里刚从服务端刷新出来的
   $('#qualityBtn').textContent = '自动';
   $('#qualityBtn').disabled = true;
   $('#qualityOptions').innerHTML = '';

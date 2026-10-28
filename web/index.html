@@ -9,7 +9,7 @@
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📺</text></svg>" />
 </head>
 <body>
-  <div class="hub-shell">
+  <div class="hub-shell" id="hubShell">
     <aside class="roster">
       <a class="brand" href="/" aria-label="LiveHub 首页">
         <span class="brand-mark">L</span>
@@ -82,6 +82,9 @@
     </main>
 
     <main class="watch-page" id="watchPage" hidden>
+      <!-- 直播间封面做的模糊底：播放器按视频真实比例摆放后，周围会留出一些空间，
+           有这层底色就不会显得空，比单纯的背景色更有观看氛围 -->
+      <div class="watch-backdrop" id="watchBackdrop" aria-hidden="true"></div>
       <header class="watch-header">
         <button class="back-button" id="backToCatalog" type="button"><span>←</span> 主播目录</button>
         <div class="view-switch" id="viewSwitch" hidden>
