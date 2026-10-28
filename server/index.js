@@ -7,6 +7,7 @@ import { PLATFORMS, parseInput, resolveRoom } from './resolvers/index.js';
 import * as accounts from './accounts.js';
 import { proxyHandler, proxyURL } from './proxy.js';
 import { addRoom, getRoom, listRooms, removeRoom, reorderRooms, roomKey, updateRoom } from './store.js';
+import { listPrefs, patchPrefs } from './prefs.js';
 import { DANMAKU_MAX_LENGTH, findEcho, getDanmakuStatus, ingestDanmaku, sendDanmaku, subscribe } from './danmaku/index.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -204,6 +205,20 @@ app.get('/api/danmaku/stream', (req, res) => {
 app.get('/api/rooms', async (_req, res) => {
   const rooms = await listRooms();
   res.json(rooms.sort((a, b) => (a.order ?? 0) - (b.order ?? 0)).map(decorateRoom));
+});
+
+// 观看偏好存在数据目录里，不跟着 localStorage 走：桌面端每次启动是随机端口，
+// localStorage 按 origin（含端口）隔离，换了端口偏好就全没了。
+app.get('/api/prefs', async (_req, res) => {
+  res.json(await listPrefs());
+});
+
+// room 走的 query 而不是路径参数：房间 key 自带冒号（douyin:123），放路径里要转义
+app.put('/api/prefs', async (req, res) => {
+  const key = String(req.query.room || '');
+  if (!key) return res.status(400).json({ error: '缺少 room 参数' });
+  const patch = req.body && typeof req.body === 'object' ? req.body : {};
+  res.json({ prefs: await patchPrefs(key, patch) });
 });
 
 /**

@@ -53,10 +53,37 @@ let httpServer = null;
 let serverPort = null;
 const loginWindows = new Map();
 
-/** 把 Express 起在随机端口上，避免和用户自己 npm start 的实例打架 */
+/**
+ * 固定端口，不要再用 0 让系统随机分配。
+ * localStorage / Cookie 是按 origin（含端口）隔离的，端口每次都变的话，
+ * 每次启动对浏览器来说都是个全新的站点，之前存的偏好和服务端 session 全对不上。
+ * 端口被别的进程占着就顺延一位，全被占了才退回随机。
+ */
+const DESKTOP_PORTS = Array.from({ length: 10 }, (_, i) => 8756 + i);
+
+/** 把 Express 起在固定端口；偶发占用则顺延，实在不行才随机 */
 async function bootServer() {
   const entry = pathToFileURL(path.join(__dirname, '..', 'server', 'index.js')).href;
   const mod = await import(entry);
+  let conflictError = null;
+  for (const port of DESKTOP_PORTS) {
+    try {
+      const started = await mod.startServer({ port });
+      httpServer = started.server;
+      if (port !== DESKTOP_PORTS[0]) {
+        console.warn(`[server] 默认端口 ${DESKTOP_PORTS[0]} 被占用，改用 ${started.port}`);
+      }
+      return started.port;
+    } catch (err) {
+      if (err?.code !== 'EADDRINUSE') throw err;
+      conflictError = err;
+    }
+  }
+  // 连续 10 个都被占：仍要能起来，代价是这次偏好不会被记住
+  console.warn(
+    '[server] 端口 8756-8765 均被占用，回退到随机端口；本次会话的观看偏好将无法跨启动保留',
+    conflictError?.message || '',
+  );
   const started = await mod.startServer({ port: 0 });
   httpServer = started.server;
   return started.port;

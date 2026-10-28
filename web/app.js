@@ -450,7 +450,7 @@ function setWatchAvatar(room) {
   }
 }
 
-function enterWatchRoom(room) {
+async function enterWatchRoom(room) {
   if (!room) return;
   if (state.currentRoom?.key === room.key && !$('#watchPage').hidden) return;
   clearOfflineTimer();
@@ -500,7 +500,9 @@ function enterWatchRoom(room) {
   player.qualityMode = 'remote';
   player.streams = [];
   player.platform = room.platform;
-  // 恢复这个直播间上次的声音、线路、弹幕设置（清晰度要等服务端返回档位后再套用）
+  // 恢复这个直播间上次的声音、线路、弹幕设置（清晰度要等服务端返回档位后再套用）。
+  // 偏好存在服务端，第一次要先把它们拉回来，不然后面 apply 到的是空数据。
+  await loadRoomPrefs();
   applyRoomPrefs(room);
   $('#playerMessage').classList.remove('is-hidden', 'is-error');
   $('#playerMessageText').textContent = '正在连接直播间…';
@@ -511,7 +513,7 @@ function enterWatchRoom(room) {
   loadWatchRoom(room);
 }
 
-function handleRoute() {
+async function handleRoute() {
   const match = location.hash.match(/^#\/room\/(.+)$/);
   if (!match) {
     if (state.currentRoom) stopWatchRoom();
@@ -520,7 +522,7 @@ function handleRoute() {
   let key;
   try { key = decodeURIComponent(match[1]); } catch { key = match[1]; }
   const room = state.rooms.find((item) => item.key === key);
-  if (room) enterWatchRoom(room);
+  if (room) await enterWatchRoom(room);
   else {
     location.hash = '#/';
     toast('房间不存在，请从主播目录重新选择');
@@ -1013,46 +1015,79 @@ function spawnOverlay(msg) {
 
 /* ---------------- 观看偏好：按直播间记忆 ---------------- */
 
-// 每个直播间记住自己的音量、清晰度、线路、悬浮弹幕和弹幕四项样式，
-// 退出再回来、甚至重启 App 都不用重新调一遍。
-// 放 localStorage 而不是服务端：这些纯粹是本机的界面偏好，不值得进数据目录。
-const ROOM_PREFS_KEY = 'livehub:room-prefs:v1';
-const ROOM_PREFS_LIMIT = 300; // 只留最近用过的房间，避免关注多了之后无限膨胀
+// 每个直播间记住自己的音量、清晰度、线路、悬浮弹幕和弹幕四项样式。
+// 存在服务端的数据目录里而不是 localStorage —— 桌面端每次启动是随机端口，
+// 而 localStorage 按 origin（含端口）隔离，端口一换偏好就全丢了。
+// 服务端读写是异步的，所以这里用一个内存副本给同步代码（进房间要立刻套用），
+// 后台再慢慢往服务端推，拖音量滑块这种高频操作也不会一直写文件。
+let roomPrefsCache = null; // null = 还没拉过
+let roomPrefsLoading = null;
+const roomPrefsTimer = new Map();
+const roomPrefsPending = new Map(); // key -> 累积待发送的 patch
+
+async function loadRoomPrefs({ force = false } = {}) {
+  if (roomPrefsCache && !force) return roomPrefsCache;
+  if (roomPrefsLoading && !force) return roomPrefsLoading;
+  roomPrefsLoading = (async () => {
+    try {
+      const data = await api('/api/prefs');
+      roomPrefsCache = data && typeof data === 'object' ? data : {};
+    } catch {
+      // 拉不到就当成还没有偏好，本次会话内仍然记得住
+      roomPrefsCache = roomPrefsCache || {};
+    }
+    roomPrefsLoading = null;
+    return roomPrefsCache;
+  })();
+  return roomPrefsLoading;
+}
 
 function readRoomPrefs(key) {
   if (!key) return null;
-  try {
-    const all = JSON.parse(localStorage.getItem(ROOM_PREFS_KEY) || '{}');
-    return all && !Array.isArray(all) && all[key] ? all[key] : null;
-  } catch {
-    return null;
-  }
+  return roomPrefsCache?.[key] || null;
 }
 
-/** 局部更新某个房间的偏好；没进直播间时（key 为空）静默跳过 */
+/**
+ * 更新内存副本，再节流推给服务端（拖音量滑块是连续事件，没必要每帧写一次文件）。
+ * 注意要把这段时间内的改动**累积**起来一起发：直接覆盖的话，
+ * 「拖音量 → 拖字号」里只有最后一项会被发出去，前面的就丢了。
+ */
 function patchRoomPrefs(key, patch) {
   if (!key) return;
-  try {
-    const parsed = JSON.parse(localStorage.getItem(ROOM_PREFS_KEY) || '{}');
-    const all = parsed && !Array.isArray(parsed) ? parsed : {};
-    const prev = all[key] || {};
-    const next = { ...prev, ...patch };
-    // 弹幕四项是逐个调的，要合并而不是整块替换
-    if (patch.danmaku) next.danmaku = { ...(prev.danmaku || {}), ...patch.danmaku };
-    next.updatedAt = Date.now();
-    all[key] = next;
-    // 超上限就丢最久没进过的
-    const keys = Object.keys(all);
-    if (keys.length > ROOM_PREFS_LIMIT) {
-      const stale = keys
-        .sort((a, b) => (all[a].updatedAt || 0) - (all[b].updatedAt || 0))
-        .slice(0, keys.length - ROOM_PREFS_LIMIT);
-      for (const old of stale) delete all[old];
-    }
-    localStorage.setItem(ROOM_PREFS_KEY, JSON.stringify(all));
-  } catch {
-    /* 隐私模式下 localStorage 可能不可用，本次会话内仍然生效 */
-  }
+  if (!roomPrefsCache) roomPrefsCache = {};
+  const prev = roomPrefsCache[key] || {};
+  const next = { ...prev, ...patch };
+  if (patch.danmaku) next.danmaku = { ...(prev.danmaku || {}), ...patch.danmaku };
+  next.updatedAt = Date.now();
+  roomPrefsCache[key] = next;
+
+  const queued = roomPrefsPending.get(key) || {};
+  const merged = { ...queued, ...patch };
+  if (patch.danmaku) merged.danmaku = { ...(queued.danmaku || {}), ...patch.danmaku };
+  roomPrefsPending.set(key, merged);
+
+  clearTimeout(roomPrefsTimer.get(key));
+  roomPrefsTimer.set(key, setTimeout(() => flushRoomPrefs(key), 400));
+}
+
+/** 把一个房间攒下的改动立刻发出去 */
+function flushRoomPrefs(key) {
+  const patch = roomPrefsPending.get(key);
+  if (!patch) return;
+  clearTimeout(roomPrefsTimer.get(key));
+  roomPrefsPending.delete(key);
+  api(`/api/prefs?room=${encodeURIComponent(key)}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(patch),
+  }).catch(() => {
+    /* 服务没起来也不影响本次会话 */
+  });
+}
+
+/** 关页面/退出 App 前把还没落盘的改动补发，避免最后那几百毫秒的调整白调 */
+function flushAllRoomPrefs() {
+  for (const key of [...roomPrefsPending.keys()]) flushRoomPrefs(key);
 }
 
 const currentRoomKey = () => state.currentRoom?.key || '';
@@ -1261,6 +1296,7 @@ function showQualityHint(text) {
 async function loadWatchRoom(room, options = {}) {
   const requestId = ++player.requestId;
   // 优先用这个直播间上次选的清晰度，其次才是同平台的通用偏好
+  await loadRoomPrefs();
   const preferred =
     options.quality ?? readRoomPrefs(room.key)?.quality ?? readQualityPreference(room.platform);
   clearPlayerEngine();
@@ -1995,6 +2031,12 @@ async function init() {
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) return;
     if (Date.now() - state.lastRefreshAt > 60_000) refreshRooms({ silent: true });
+  });
+
+  // 关闭 App / 切到后台前，把还没发出去的观看偏好补发掉
+  window.addEventListener('pagehide', flushAllRoomPrefs);
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) flushAllRoomPrefs();
   });
 }
 
