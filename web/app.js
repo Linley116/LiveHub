@@ -502,7 +502,6 @@ async function enterWatchRoom(room) {
   $('#watchAnchor').textContent = creatorName(room);
   setWatchAvatar(room);
   $('#danmakuIndicator').textContent = '检测中';
-  $('#danmakuAuthNote').textContent = '';
   $('#danmakuOverlay').replaceChildren();
   $('#danmakuOverlay').classList.remove('is-visible');
   $('#toggleOverlay').disabled = true;
@@ -725,9 +724,6 @@ function applyDanmakuStatus(room, status) {
   indicator.textContent = text.label;
   indicator.classList.toggle('is-connected', status.state === 'connected');
   indicator.classList.toggle('is-error', status.state === 'error');
-  // 说明文字现在贴着播放器内的输入框，要短，长了会糊住画面
-  const note = $('#danmakuAuthNote');
-  if (note) note.textContent = status.read ? '' : `${platform(room.platform).name}弹幕通道暂不可用。`;
   $('#toggleOverlay').disabled = !status.read;
   if (!status.read) setDanmakuOverlay(false);
   else {
@@ -753,7 +749,8 @@ function applyDanmakuStatus(room, status) {
 function applySendCapability(room, status) {
   const name = platform(room.platform).name;
   const input = $('#danmakuInput');
-  const note = $('#danmakuAuthNote');
+  // 提示语那句已经去掉了；用哑对象吸收赋值，免得到处判空
+  const note = $('#danmakuAuthNote') || { textContent: '' };
   const isDesktop = Boolean(window.livehub?.isDesktop);
   const desktopMode = status.sendMode === 'desktop';
 

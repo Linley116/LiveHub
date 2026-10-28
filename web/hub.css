@@ -278,23 +278,20 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .player-danmaku-state.is-connected { border-color: rgba(89,212,154,.3); color: #8fdcb0; }
 .player-danmaku-state.is-error { border-color: rgba(251,102,108,.32); color: #ff9ea3; }
 .watch-player.is-idle .player-danmaku-state { opacity: 0; }
-/* 输入框摆在控制条上方；正在输入时不跟随自动隐藏 */
-.player-composer { position: absolute; z-index: 3; left: 14px; right: 14px; bottom: 72px; display: flex; gap: 7px; transition: opacity .18s ease; }
-.watch-player.is-idle .player-composer { opacity: 0; pointer-events: none; }
-.player-composer:focus-within { opacity: 1; pointer-events: auto; }
-.player-composer input { flex: 1; min-width: 0; height: 34px; padding: 0 11px; outline: none; border: 1px solid rgba(255,255,255,.16); border-radius: 9px; color: #f1f3f5; background: rgba(13,15,19,.84); font-size: 12px; backdrop-filter: blur(14px); transition: border-color .18s ease; }
-.player-composer input::placeholder { color: rgba(190,196,204,.6); }
-.player-composer input:focus { border-color: rgba(183,237,131,.55); }
+/* 输入框内联在控制条中间，和音量/清晰度同一行，不额外占画面高度 */
+.player-composer { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 6px; }
+.player-composer input { flex: 1 1 auto; min-width: 0; height: 27px; padding: 0 10px; outline: none; border: 1px solid rgba(255,255,255,.14); border-radius: 8px; color: #eef1f5; background: rgba(255,255,255,.07); font-size: 11.5px; transition: border-color .18s ease, background .18s ease; }
+.player-composer input::placeholder { color: rgba(196,202,210,.62); }
+.player-composer input:hover { background: rgba(255,255,255,.1); }
+.player-composer input:focus { border-color: rgba(183,237,131,.55); background: rgba(12,14,18,.75); }
 .player-composer input:disabled { opacity: .5; }
-.player-composer button { flex: none; height: 34px; padding: 0 14px; border: 0; border-radius: 9px; color: #10150c; background: var(--accent); font-size: 12px; font-weight: 700; }
-.player-composer button:disabled { opacity: .4; cursor: not-allowed; }
-/* 发送能力说明：贴着输入框上方，带描边保证在亮画面上也读得清 */
-.player-composer-note { position: absolute; z-index: 3; left: 16px; right: 16px; bottom: 111px; margin: 0; color: rgba(238,241,246,.9); font-size: 10.5px; line-height: 1.5; text-shadow: 0 1px 3px rgba(0,0,0,.9), 0 0 12px rgba(0,0,0,.65); pointer-events: none; transition: opacity .18s ease; }
-.player-composer-note:empty { display: none; }
-.watch-player.is-idle .player-composer-note { opacity: 0; }
-.player-composer:focus-within ~ .player-composer-note { opacity: 1; }
+.player-composer button { flex: none; height: 27px; padding: 0 11px; border: 0; border-radius: 8px; color: #10150c; background: var(--accent); font-size: 11.5px; font-weight: 700; }
+.player-composer button:disabled { opacity: .38; cursor: not-allowed; }
+/* 输入中时控制条不能隐身，否则打字打到一半整条就淡出了 */
+.player-bar:focus-within { opacity: 1; pointer-events: auto; }
+.watch-player.is-idle .player-bar:focus-within { opacity: 1; pointer-events: auto; }
 /* 控制条做进播放容器内：这样全屏时它跟着容器进 top layer，还能继续用 */
-.player-bar { position: absolute; z-index: 3; left: 0; right: 0; bottom: 0; display: flex; align-items: center; gap: 7px; padding: 26px 12px 10px; background: linear-gradient(transparent, rgba(3,4,6,.55) 42%, rgba(3,4,6,.92)); opacity: 1; transition: opacity .18s ease; }
+.player-bar { position: absolute; z-index: 3; left: 0; right: 0; bottom: 0; display: flex; align-items: center; gap: 7px; padding: 30px 12px 10px; background: linear-gradient(transparent, rgba(3,4,6,.62) 34%, rgba(3,4,6,.96)); opacity: 1; transition: opacity .18s ease; }
 /* 鼠标停一会儿自动隐身，别长期压着画面；移动鼠标或暂停时立刻回来 */
 .watch-player.is-idle { cursor: none; }
 .watch-player.is-idle .player-bar { opacity: 0; pointer-events: none; }

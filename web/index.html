@@ -135,7 +135,11 @@
                 </div>
                 <div class="player-live-state" title="直播状态"><i></i><span id="playerStatus">连接中</span></div>
                 <span class="player-latency" id="playerLatency" hidden></span>
-                <span class="player-bar-gap"></span>
+                <!-- 输入框就放在控制条中间的空白里，不再单独占一行挡画面 -->
+                <form class="player-composer" id="danmakuForm">
+                  <input id="danmakuInput" maxlength="30" placeholder="发个弹幕…" aria-label="发送弹幕" disabled />
+                  <button type="submit" disabled>发送</button>
+                </form>
 
                 <div class="player-menu" id="qualityMenu">
                   <button class="player-text" id="qualityBtn" type="button" aria-haspopup="true" aria-expanded="false">自动</button>
@@ -180,14 +184,7 @@
                 </button>
               </div>
 
-              <!-- 弹幕收发直接做进播放器：弹幕飘在画面上，输入框摆在控制条上方，
-                   和主流直播网页一样，不再单独占一列 -->
               <span class="player-danmaku-state" id="danmakuIndicator">检测中</span>
-              <form class="player-composer" id="danmakuForm">
-                <input id="danmakuInput" maxlength="30" placeholder="进入房间后检测发送能力…" aria-label="发送弹幕" disabled />
-                <button type="submit" disabled>发送</button>
-              </form>
-              <p class="player-composer-note" id="danmakuAuthNote">请配置该平台的授权接入后，才能读取或发送真实弹幕。</p>
             </div>
           </section>
 
