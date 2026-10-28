@@ -424,11 +424,37 @@ function stopWatchRoom() {
   render();
 }
 
+/** 标题行右侧的标签：平台 / 房间号 / 分区 / 人气 */
+function setWatchTags(room) {
+  const heading = $('#watchRoomHeading');
+  if (heading) heading.style.setProperty('--platform-color', platform(room.platform).color);
+
+  const platformTag = $('#watchPlatformTag');
+  if (platformTag) platformTag.textContent = platform(room.platform).name;
+
+  const roomTag = $('#watchRoomTag');
+  if (roomTag) roomTag.textContent = `房间号 ${room.roomId}`;
+
+  const areaTag = $('#watchAreaTag');
+  if (areaTag) {
+    areaTag.textContent = room.area || '';
+    areaTag.hidden = !room.area;
+  }
+
+  const onlineTag = $('#watchOnlineTag');
+  if (onlineTag) {
+    const online = Number(room.online) || 0;
+    onlineTag.textContent = online ? `${fmtNum(online)} 人气` : '';
+    onlineTag.hidden = !online;
+  }
+}
+
 /** 观看页头像：用真实头像，缺失或裂图时退回首字母占位 */
 function setWatchAvatar(room) {
   const box = $('#watchAvatar');
   box.style.setProperty('--platform-color', platform(room.platform).color);
   $('#watchAvatarFallback').textContent = creatorName(room).slice(0, 1);
+  setWatchTags(room);
 
   let img = box.querySelector('.watch-avatar-img');
   if (!room.avatar) {
@@ -474,7 +500,6 @@ async function enterWatchRoom(room) {
   $('#watchLiveState').textContent = room.live ? '正在直播' : '准备进入';
   $('#watchTitle').textContent = roomName(room);
   $('#watchAnchor').textContent = creatorName(room);
-  $('#watchArea').textContent = room.area || '';
   setWatchAvatar(room);
   $('#danmakuSummary').textContent = '正在检查平台接入状态';
   $('#danmakuIndicator').textContent = '检测中';
@@ -1332,8 +1357,7 @@ async function loadWatchRoom(room, options = {}) {
     });
     $('#watchTitle').textContent = roomName(room);
     $('#watchAnchor').textContent = creatorName(room);
-    $('#watchArea').textContent = room.area || '';
-    setWatchAvatar(room);
+      setWatchAvatar(room);
     $('#watchLiveState').textContent = data.live ? '正在直播' : '暂未开播';
     const cachedRoom = state.rooms.find((item) => item.key === room.key);
     if (cachedRoom) Object.assign(cachedRoom, room);

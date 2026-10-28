@@ -94,10 +94,15 @@
         <div class="watch-breadcrumb"><span id="watchPlatformName">平台</span><i>·</i><span id="watchLiveState">准备中</span></div>
       </header>
       <div class="watch-content">
-        <div class="watch-room-heading">
+        <div class="watch-room-heading" id="watchRoomHeading">
           <div class="watch-room-avatar" id="watchAvatar"><span class="watch-avatar-fallback" id="watchAvatarFallback">L</span></div>
           <div class="watch-room-copy"><h1 id="watchTitle">正在加载直播间</h1><p id="watchAnchor"></p></div>
-          <span class="watch-category" id="watchArea"></span>
+          <div class="heading-tags">
+            <span class="tag is-platform" id="watchPlatformTag"></span>
+            <span class="tag" id="watchRoomTag"></span>
+            <span class="tag" id="watchAreaTag" hidden></span>
+            <span class="tag is-live" id="watchOnlineTag" hidden></span>
+          </div>
         </div>
         <div class="watch-layout" id="watchLayout">
           <section class="player-column" aria-label="直播播放器">
