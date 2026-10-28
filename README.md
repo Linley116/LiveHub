@@ -12,11 +12,9 @@
   <img alt="license" src="https://img.shields.io/badge/license-MIT-blue?style=flat-square">
 </p>
 
-<p><img src="docs/images/hub.jpg" alt="LiveHub 主播库" width="920"></p>
-
 </div>
 
-## 这是什么
+## 项目简介
 
 LiveHub 是一个**本地优先**的直播工作台。不用在四个网站的标签页之间来回切，也不用忍受各家播放器的广告和推荐流。
 
@@ -81,6 +79,8 @@ npm run dist:dir   # 只出 .app，用于快速验证
 ```
 
 ## 界面
+
+<p><img src="docs/images/hub.jpg" alt="LiveHub 主播库" width="920"></p>
 
 **观看页**：中间播放，右边弹幕，底下输入框。四个平台在这个页面上长得一样。
 
