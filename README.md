@@ -80,7 +80,7 @@ npm run dist:dir   # 只出 .app，用于快速验证
 
 ## 界面
 
-<p><img src="docs/images/hub.jpg" alt="LiveHub 主播库" width="920"></p>
+<p align="center"><img src="docs/images/hub.jpg" alt="LiveHub 主播库" width="920"></p>
 
 **观看页**：中间播放，右边弹幕，底下输入框。四个平台在这个页面上长得一样。
 
