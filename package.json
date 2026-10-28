@@ -1,0 +1,78 @@
+{
+  "name": "livehub",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "跨平台直播工作台：主播库 + 应用内播放器 + 桌面端平台原页互动",
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "node --watch server/index.js",
+    "desktop": "electron desktop/main.cjs",
+    "desktop:dev": "electron desktop/main.cjs --remote-debugging-port=9333",
+    "dist": "electron-builder --mac",
+    "dist:dir": "electron-builder --mac --dir"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "hls.js": "^1.5.20",
+    "mpegts.js": "^1.8.0",
+    "ws": "^8.22.0"
+  },
+  "devDependencies": {
+    "electron": "^45.0.0",
+    "electron-builder": "^26.18.0"
+  },
+  "main": "desktop/main.cjs",
+  "build": {
+    "appId": "com.livehub.desktop",
+    "productName": "LiveHub",
+    "copyright": "LiveHub",
+    "asar": false,
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "desktop/**/*",
+      "server/**/*",
+      "web/**/*",
+      "package.json",
+      "!data/**",
+      "!dist/**",
+      "!build/**",
+      "!.workbuddy/**",
+      "!**/*.md",
+      "seed/**/*"
+    ],
+    "mac": {
+      "category": "public.app-category.entertainment",
+      "icon": "build/icon.icns",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64"
+          ]
+        }
+      ],
+      "identity": null
+    },
+    "dmg": {
+      "title": "LiveHub",
+      "contents": [
+        {
+          "x": 150,
+          "y": 190,
+          "type": "file"
+        },
+        {
+          "x": 420,
+          "y": 190,
+          "type": "link",
+          "path": "/Applications"
+        }
+      ]
+    }
+  },
+  "author": "LiveHub"
+}

@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#101216" />
+  <title>LiveHub · 主播库</title>
+  <link rel="stylesheet" href="/hub.css?v=20261027-ui" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📺</text></svg>" />
+</head>
+<body>
+  <div class="hub-shell">
+    <aside class="roster">
+      <a class="brand" href="/" aria-label="LiveHub 首页">
+        <span class="brand-mark">L</span>
+        <span class="brand-copy"><strong>LiveHub</strong><small>跨平台主播库</small></span>
+      </a>
+
+      <form class="import-form" id="addForm" autocomplete="off">
+        <label for="addInput">导入直播间</label>
+        <div class="import-input">
+          <input id="addInput" placeholder="粘贴链接或输入 平台 房间号" aria-label="直播间链接或平台房间号" spellcheck="false" />
+          <button type="submit" aria-label="导入主播" title="导入主播">+</button>
+        </div>
+        <small>例如：bilibili 12345 · huya 660000</small>
+        <div class="form-error" id="addError" role="status"></div>
+      </form>
+
+      <div class="roster-heading"><span>我的主播</span><span id="creatorCount">0</span></div>
+      <nav class="creator-list" id="streamerList" aria-label="主播导航"></nav>
+
+      <footer class="roster-footer">
+        <button class="account-entry" id="openAccounts" type="button">
+          <span class="account-dot" id="accountDot"></span>
+          <span class="account-copy">
+            <b id="accountLabel">平台账号</b>
+            <small id="accountSummary">登录后可解锁原画与弹幕</small>
+          </span>
+        </button>
+        <div class="footer-row">
+          <span><b id="roomCount">0</b> 个房间</span>
+          <button class="text-action" id="clearAll" type="button">清空房间库</button>
+        </div>
+      </footer>
+    </aside>
+
+    <main class="catalog" id="catalog">
+      <header class="catalog-header">
+        <div class="catalog-title-wrap">
+          <div class="eyebrow">直播收藏</div>
+          <h1 id="catalogTitle">全部主播</h1>
+          <p id="catalogSubtitle">导入你常看的主播，点击房间卡片进入 LiveHub 内的观看页。</p>
+        </div>
+        <div class="header-note"><span class="native-dot" id="nativeDot"></span><span id="headerNoteText">正在读取开播状态…</span></div>
+      </header>
+
+      <section class="catalog-tools" aria-label="房间筛选">
+        <div class="platform-filters" id="platformFilters"></div>
+        <label class="search-box">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-4-4"></path></svg>
+          <input id="searchInput" type="search" placeholder="搜索主播或房间" aria-label="搜索主播或房间" />
+        </label>
+        <select id="sortSelect" aria-label="房间排序">
+          <option value="live">开播优先</option>
+          <option value="online">人气优先</option>
+          <option value="added">最近导入</option>
+          <option value="name">主播名称</option>
+        </select>
+        <button class="refresh-status" id="refreshRooms" type="button" title="重新检查所有房间的开播状态">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20.5 12a8.5 8.5 0 1 1-2.4-5.9"></path><path d="M20.5 4.5v6h-6"></path></svg>
+          <span id="refreshLabel">刷新</span>
+        </button>
+      </section>
+
+      <section class="room-grid" id="roomGrid" aria-live="polite"></section>
+
+      <section class="catalog-empty" id="catalogEmpty" hidden>
+        <div class="empty-icon">✦</div>
+        <h2 id="emptyTitle">先导入你喜欢的主播</h2>
+        <p id="emptyCopy">粘贴直播间链接，主播会出现在左侧导航和这里的房间卡片中。</p>
+      </section>
+    </main>
+
+    <main class="watch-page" id="watchPage" hidden>
+      <header class="watch-header">
+        <button class="back-button" id="backToCatalog" type="button"><span>←</span> 主播目录</button>
+        <div class="view-switch" id="viewSwitch" hidden>
+          <button type="button" data-view="native" class="is-selected">LiveHub 播放器</button>
+          <button type="button" data-view="platform">平台官方页</button>
+        </div>
+        <div class="watch-breadcrumb"><span id="watchPlatformName">平台</span><i>·</i><span id="watchLiveState">准备中</span></div>
+      </header>
+      <div class="watch-content">
+        <div class="watch-room-heading">
+          <div class="watch-room-avatar" id="watchAvatar"><span class="watch-avatar-fallback" id="watchAvatarFallback">L</span></div>
+          <div class="watch-room-copy"><h1 id="watchTitle">正在加载直播间</h1><p id="watchAnchor"></p></div>
+          <span class="watch-category" id="watchArea"></span>
+        </div>
+        <div class="watch-layout" id="watchLayout">
+          <section class="player-column" aria-label="直播播放器">
+            <div class="watch-player" id="watchPlayer">
+              <!-- 不用原生 controls：MSE 直播流的 video.duration 会一直增长，
+                   原生进度条按百分比渲染，分母不停变大就会持续抖动重算 -->
+              <video id="watchVideo" playsinline autoplay muted></video>
+              <div class="danmaku-overlay" id="danmakuOverlay" aria-hidden="true"></div>
+              <div class="player-message" id="playerMessage"><span class="loading-mark"></span><span id="playerMessageText">正在连接直播间…</span></div>
+              <p class="quality-hint" id="qualityHint" hidden></p>
+              <!--
+                控制条一律用图标，只有清晰度保留文字（档位本身就是文字）。
+                这样控件总宽约 360px，播放器再窄也不会把右边的按钮挤出容器。
+              -->
+              <div class="player-bar" id="playerBar">
+                <button class="player-icon" id="togglePlay" type="button" title="暂停" aria-label="暂停">
+                  <svg class="ico ico-pause" viewBox="0 0 24 24" fill="currentColor"><path d="M7 5h3.6v14H7zM13.4 5H17v14h-3.6z" /></svg>
+                  <svg class="ico ico-play" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.2v13.6L18.5 12z" /></svg>
+                </button>
+                <button class="player-icon" id="reloadPlayer" type="button" title="重新连接" aria-label="重新连接">
+                  <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M20.4 12a8.4 8.4 0 1 1-2.46-5.94" /><path d="M20.4 4.4v4.2h-4.2" /></svg>
+                </button>
+                <div class="player-sound">
+                  <button class="player-icon" id="toggleSound" type="button" title="静音" aria-label="静音">
+                    <svg class="ico ico-sound" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5.4 6.6 9H3.6v6h3L11 18.6z" fill="currentColor" stroke="none" /><path d="M14.8 9.6a3.4 3.4 0 0 1 0 4.8" /><path d="M17.4 7.2a7 7 0 0 1 0 9.6" /></svg>
+                    <!-- 静音：实心喇叭 + 叉。18px 下斜杠会和喇叭边缘挤在一起（像重影/缺笔画），叉号是通行画法 -->
+                    <svg class="ico ico-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5.4 6.6 9H3.6v6h3L11 18.6z" fill="currentColor" stroke="none" /><path d="M14.6 9.2 20 14.8M20 9.2 14.6 14.8" stroke-width="2.1" /></svg>
+                  </button>
+                  <input class="player-volume" id="volumeRange" type="range" min="0" max="1" step="0.05" value="1" aria-label="音量" />
+                </div>
+                <div class="player-live-state" title="直播状态"><i></i><span id="playerStatus">连接中</span></div>
+                <span class="player-latency" id="playerLatency" hidden></span>
+                <span class="player-bar-gap"></span>
+
+                <div class="player-menu" id="qualityMenu">
+                  <button class="player-text" id="qualityBtn" type="button" aria-haspopup="true" aria-expanded="false">自动</button>
+                  <div class="player-pop" id="qualityPop" hidden>
+                    <p class="pop-title">清晰度</p>
+                    <div class="pop-list" id="qualityOptions"></div>
+                    <p class="pop-title" id="lineTitle" hidden>线路</p>
+                    <div class="pop-list" id="lineOptions"></div>
+                  </div>
+                </div>
+
+                <button class="player-icon" id="togglePip" type="button" title="小窗模式" aria-label="小窗模式">
+                  <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><rect x="3.2" y="5" width="17.6" height="14" rx="2.4" /><rect x="12.4" y="11.4" width="7" height="6" rx="1.2" fill="currentColor" stroke="none" /></svg>
+                </button>
+
+                <button class="player-icon is-danmaku" id="toggleOverlay" type="button" title="悬浮弹幕" aria-label="悬浮弹幕" disabled><span class="ico-dan">弹</span></button>
+
+                <div class="player-menu" id="danmakuMenu">
+                  <button class="player-icon is-settings" id="openDanmakuSettings" type="button" title="弹幕设置" aria-label="弹幕设置" aria-haspopup="true" aria-expanded="false">
+                    <span class="ico-dan">弹</span>
+                    <svg class="ico-gear" viewBox="0 0 24 24" fill="currentColor" fill-rule="evenodd" aria-hidden="true">
+                      <path d="M13.1 2h-2.2l-.3 2.1a7.4 7.4 0 0 0-1.86 1.03L6.1 4.24 4.24 6.1l.89 1.65a7.4 7.4 0 0 0-1.02 1.85L2 9.9v2.2l2.1.3a7.4 7.4 0 0 0 1.03 1.86l-.9 1.64 1.87 1.87 1.64-.89a7.4 7.4 0 0 0 1.86 1.03l.3 2.09h2.2l.3-2.1a7.4 7.4 0 0 0 1.85-1.02l1.65.89 1.87-1.87-.89-1.64a7.4 7.4 0 0 0 1.03-1.86l2.1-.3V9.9l-2.1-.3a7.4 7.4 0 0 0-1.03-1.85l.89-1.65-1.87-1.87-1.64.89A7.4 7.4 0 0 0 12.9 6.1L13.1 2zm-1.1 5.4a4.8 4.8 0 1 0 0 9.6 4.8 4.8 0 0 0 0-9.6zm0 2.6a2.2 2.2 0 1 1 0 4.4 2.2 2.2 0 0 1 0-4.4z" />
+                    </svg>
+                  </button>
+                  <div class="player-pop is-panel" id="danmakuPop" hidden>
+                    <p class="pop-title">悬浮弹幕</p>
+                    <label class="pop-row"><span>透明度</span><input type="range" id="dmOpacity" min="25" max="100" step="5" /><em id="dmOpacityVal"></em></label>
+                    <label class="pop-row"><span>字号</span><input type="range" id="dmFontSize" min="11" max="26" step="1" /><em id="dmFontSizeVal"></em></label>
+                    <label class="pop-row"><span>速度</span><input type="range" id="dmSpeed" min="5" max="20" step="1" /><em id="dmSpeedVal"></em></label>
+                    <div class="pop-row"><span>区域</span>
+                      <div class="pop-seg" id="dmArea">
+                        <button type="button" data-area="top">顶部</button>
+                        <button type="button" data-area="half">半屏</button>
+                        <button type="button" data-area="full">全部</button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <button class="player-icon" id="toggleFullscreen" type="button" title="全屏" aria-label="全屏">
+                  <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9.5V4.5h5M20 9.5V4.5h-5M4 14.5v5h5M20 14.5v5h-5" /></svg>
+                </button>
+              </div>
+            </div>
+          </section>
+
+          <div class="danmaku-column">
+            <aside class="danmaku-panel" aria-label="直播弹幕">
+              <header class="danmaku-header">
+                <div><h2>直播弹幕</h2><p id="danmakuSummary">正在检查平台接入状态</p></div>
+                <span class="danmaku-indicator" id="danmakuIndicator">检测中</span>
+              </header>
+              <div class="danmaku-notice" id="danmakuNotice" role="status">
+                <span class="notice-icon">i</span>
+                <p id="danmakuNoticeText">正在读取弹幕接入状态…</p>
+              </div>
+              <div class="danmaku-scroll">
+                <div class="danmaku-list" id="danmakuList" aria-live="polite">
+                  <div class="danmaku-empty" id="danmakuEmpty">此房间的弹幕消息会显示在这里</div>
+                </div>
+                <button type="button" class="danmaku-jump" id="danmakuJump" hidden>
+                  <span id="danmakuJumpText">新弹幕</span><i>↓</i>
+                </button>
+              </div>
+              <form class="danmaku-compose" id="danmakuForm">
+                <input id="danmakuInput" maxlength="30" placeholder="进入房间后检测发送能力…" aria-label="发送弹幕" disabled />
+                <button type="submit" disabled>发送</button>
+              </form>
+              <div class="danmaku-auth-note" id="danmakuAuthNote">请配置该平台的授权接入后，才能读取或发送真实弹幕。</div>
+            </aside>
+          </div>
+        </div>
+
+        <section class="platform-page" id="platformPage" hidden>
+          <div class="platform-page-bar">
+            <span class="platform-page-hint">平台官方页 · 内嵌在 LiveHub 窗口</span>
+            <span class="platform-page-url" id="platformPageUrl"></span>
+            <button type="button" id="platformReload">刷新</button>
+          </div>
+          <div class="platform-page-body" id="platformPageBody"></div>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <div class="account-mask" id="accountMask" hidden>
+    <section class="account-panel" role="dialog" aria-modal="true" aria-label="平台账号">
+      <header class="account-head">
+        <div>
+          <h2>平台账号</h2>
+          <p>登录后 LiveHub 用你的账号身份取流和收弹幕：B 站、斗鱼的原画档位都要求登录。</p>
+        </div>
+        <button class="account-close" id="closeAccounts" type="button" aria-label="关闭">✕</button>
+      </header>
+      <div class="account-list" id="accountList"></div>
+      <footer class="account-foot">
+        <span id="accountFootNote">Cookie 只保存在本机 data/accounts.json，不会上传。</span>
+        <button class="text-action" id="refreshAccounts" type="button">重新检测</button>
+      </footer>
+    </section>
+  </div>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <div class="modal-overlay" id="confirmModal" hidden>
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+      <h3 id="modalTitle">确认操作</h3>
+      <p id="modalText"></p>
+      <div class="modal-actions">
+        <button class="modal-btn" id="modalCancel" type="button">取消</button>
+        <button class="modal-btn is-danger" id="modalConfirm" type="button">移除</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/vendor/hls.js/hls.min.js"></script>
+  <script src="/vendor/mpegts.js/mpegts.js"></script>
+  <script src="/app.js?v=20261027-ui"></script>
+</body>
+</html>

@@ -1,0 +1,60 @@
+{
+  "rooms": [
+    {
+      "key": "bilibili:6",
+      "order": 0,
+      "addedAt": 1793154502856,
+      "platform": "bilibili",
+      "roomId": "6",
+      "title": "【预告】29日4点 全球总决赛瑞士轮第四轮",
+      "anchor": "哔哩哔哩英雄联盟赛事",
+      "cover": "https://i0.hdslb.com/bfs/live/new_room_cover/89d6fb888f90b1649a90cb223a03bd2303e09f53.jpg",
+      "avatar": "https://i2.hdslb.com/bfs/face/544c89e68f2b1f12ffcbb8b3c062a3328e8692d9.jpg",
+      "live": true,
+      "lastChecked": 1793154505260,
+      "online": 974968
+    },
+    {
+      "key": "huya:660000",
+      "order": 1,
+      "addedAt": 1793154505296,
+      "platform": "huya",
+      "roomId": "660000",
+      "title": "【预告】29日4点 S16瑞士轮第五日",
+      "anchor": "虎牙英雄联盟赛事",
+      "cover": "https://anchorpost.msstatic.com/cdnimage/anchorpost/1042/6f/3626ef611e990cbbcefab8e1bbc561_1_1793056071.jpg?spformat=png,webp",
+      "avatar": "https://huyaimg.msstatic.com/avatar/1042/6f/3626ef611e990cbbcefab8e1bbc561_180_135.jpg?1792072553",
+      "live": true,
+      "lastChecked": 1793154509219,
+      "online": 1565251
+    },
+    {
+      "key": "douyu:288016",
+      "order": 2,
+      "addedAt": 1793154509252,
+      "platform": "douyu",
+      "roomId": "288016",
+      "title": "【重播】恭喜BFX获得德杯冠军",
+      "anchor": "英雄联盟赛事",
+      "cover": "https://rpic.douyucdn.cn/asrpic/261024/288016_src_2019.avif/dy4",
+      "avatar": "https://apic.douyucdn.cn/upload/avatar_v3/202609/1001a3b8185b48c9a694f4f0428eb7c8_big.jpg",
+      "live": true,
+      "lastChecked": 1793154512715,
+      "online": 0
+    },
+    {
+      "key": "douyin:132712818904",
+      "order": 3,
+      "addedAt": 1793154512748,
+      "platform": "douyin",
+      "roomId": "132712818904",
+      "title": "【PGL】绿龙vs老鼠，一点天禄vs黑豹",
+      "anchor": "不问深冬",
+      "cover": "",
+      "avatar": "https://p3.douyinpic.com/aweme/100x100/aweme-avatar/tos-cn-avt-0015_229149b9361f5936ec739f268d130783.jpeg?from=3067671334",
+      "live": false,
+      "lastChecked": 1793154515676,
+      "online": 0
+    }
+  ]
+}
