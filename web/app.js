@@ -501,7 +501,6 @@ async function enterWatchRoom(room) {
   $('#watchTitle').textContent = roomName(room);
   $('#watchAnchor').textContent = creatorName(room);
   setWatchAvatar(room);
-  $('#danmakuIndicator').textContent = '检测中';
   $('#danmakuOverlay').replaceChildren();
   $('#danmakuOverlay').classList.remove('is-visible');
   $('#toggleOverlay').disabled = true;
@@ -720,10 +719,8 @@ function applyDanmakuStatus(room, status) {
   // 记住最近一次状态，账号变化时可以只重算发送能力，不用等下一次回推
   danmaku.lastStatus = status;
   const text = STATE_TEXT[status.state] || STATE_TEXT.connecting;
-  const indicator = $('#danmakuIndicator');
-  indicator.textContent = text.label;
-  indicator.classList.toggle('is-connected', status.state === 'connected');
-  indicator.classList.toggle('is-error', status.state === 'error');
+  // 播放器里不再显示连接状态角标（会压住画面）；状态只用于内部判断
+  const indicator = { textContent: '', classList: { toggle() {} } };
   $('#toggleOverlay').disabled = !status.read;
   if (!status.read) setDanmakuOverlay(false);
   else {
@@ -1616,7 +1613,9 @@ function syncPlayerAspect() {
   if (!stage || !video) return;
   const { videoWidth: w, videoHeight: h } = video;
   if (!w || !h) return; // 还没拿到尺寸就保持 CSS 里的默认表现
-  const ratio = Math.min(Math.max(w / h, 0.8), 2.8);
+  // 下限放到 0.5：抖音这类手机竖屏直播常见 9:16(0.56)，卡在 0.8 会左右各留 15% 黑边。
+  // 高度已经由 min(可用宽/比例, 可用高) 兜住，竖屏不会顶出可视区，放心放开。
+  const ratio = Math.min(Math.max(w / h, 0.5), 2.8);
   const column = stage.parentElement; // .player-column
   const availW = column?.clientWidth || stage.clientWidth;
   const availH = column?.clientHeight || 0;

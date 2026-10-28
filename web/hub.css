@@ -274,10 +274,6 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 
 /* ---- 弹幕收发做进播放器 ---- */
 /* 右上角状态点：跟随控制条一起显隐，不常驻打扰画面 */
-.player-danmaku-state { position: absolute; z-index: 3; top: 12px; right: 12px; padding: 5px 9px; border: 1px solid rgba(255,255,255,.14); border-radius: 7px; background: rgba(15,17,20,.6); color: #cfd4da; font-size: 10px; white-space: nowrap; backdrop-filter: blur(12px); pointer-events: none; transition: opacity .18s ease; }
-.player-danmaku-state.is-connected { border-color: rgba(89,212,154,.3); color: #8fdcb0; }
-.player-danmaku-state.is-error { border-color: rgba(251,102,108,.32); color: #ff9ea3; }
-.watch-player.is-idle .player-danmaku-state { opacity: 0; }
 /* 输入框内联在控制条中间，和音量/清晰度同一行，不额外占画面高度 */
 .player-composer { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 6px; }
 .player-composer input { flex: 1 1 auto; min-width: 0; height: 27px; padding: 0 10px; outline: none; border: 1px solid rgba(255,255,255,.14); border-radius: 8px; color: #eef1f5; background: rgba(255,255,255,.07); font-size: 11.5px; transition: border-color .18s ease, background .18s ease; }
