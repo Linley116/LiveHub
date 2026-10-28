@@ -365,6 +365,25 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 @container (width < 540px) { .player-bar { gap: 4px; padding: 26px 8px 10px; } }
 @container (width < 480px) { .player-bar #playerStatus { display: none; } }
 @container (width < 420px) { .player-bar .player-latency { display: none; } }
+/*
+ * 竖屏直播（抖音手机直播是 9:16，容器只有 350px 左右）单独一套控制栏：
+ * 一排按钮 + 输入框挤不下去，但也不能折行——只在竖屏精简到「播放 / 静音 / 输入框 / 发送 / 全屏」
+ * 这五项，一行放得下且输入框还能剩 190px 左右。
+ * 清晰度、画中画、弹幕开关这些竖屏使用频率低的先收起，画面本身不被额外遮挡。
+ */
+@container (width < 470px) {
+  .player-bar { gap: 4px; padding: 22px 8px 8px; }
+  #reloadPlayer,
+  #togglePip,
+  #qualityMenu,
+  #danmakuMenu,
+  .player-live-state,
+  .player-latency,
+  .player-sound .player-volume { display: none; }
+  /* 发送按钮收窄一点，把这部分宽度让给输入框 */
+  .player-composer button { padding: 0 8px; font-size: 11px; }
+  .player-composer input { padding: 0 8px; font-size: 11px; }
+}
 .quality-hint { position: absolute; z-index: 3; bottom: 46px; left: 12px; right: 12px; margin: 0; padding: 8px 11px; border-radius: 8px; color: #d6bc85; background: rgba(20,17,10,.92); font-size: 11px; }
 
 /*
