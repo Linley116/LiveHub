@@ -418,7 +418,6 @@ function stopWatchRoom() {
   player.qualityMode = 'remote';
   state.currentRoom = null;
   $('#danmakuOverlay').replaceChildren();
-  $('#hubShell')?.classList.remove('is-watching');
   setWatchBackdrop(null);
   $('#catalog').hidden = false;
   $('#watchPage').hidden = true;
@@ -464,8 +463,6 @@ function setWatchBackdrop(room) {
 async function enterWatchRoom(room) {
   if (!room) return;
   if (state.currentRoom?.key === room.key && !$('#watchPage').hidden) return;
-  // 看直播是沉浸场景，收起左侧主播栏把宽度让给画面（「主播目录」按钮可返回）
-  $('#hubShell')?.classList.add('is-watching');
   setWatchBackdrop(room);
   clearOfflineTimer();
   clearPlayerEngine();
@@ -504,6 +501,8 @@ async function enterWatchRoom(room) {
   $('#danmakuForm button').textContent = '发送';
   // 换房间先把比例还原成 CSS 默认值，免得上一个房间的尺寸留在这儿
   $('#watchPlayer').style.aspectRatio = '';
+  const danmakuColumn = document.querySelector('.danmaku-column');
+  if (danmakuColumn) danmakuColumn.style.minHeight = '';
   setWatchBackdrop(room); // 封面可能是这里刚从服务端刷新出来的
   $('#qualityBtn').textContent = '自动';
   $('#qualityBtn').disabled = true;
@@ -1645,6 +1644,12 @@ function syncPlayerAspect() {
   if (!w || !h) return; // 还没拿到尺寸就保持 CSS 里的默认比例
   const ratio = Math.min(Math.max(w / h, 0.8), 2.8);
   stage.style.aspectRatio = String(ratio);
+  // 弹幕列跟着播放器走，两列始终上下平齐（CSS 的 min-height 只是拿到尺寸前的兜底）
+  const column = document.querySelector('.danmaku-column');
+  if (column) {
+    const height = stage.getBoundingClientRect().height;
+    if (height) column.style.minHeight = `${Math.max(320, Math.round(height))}px`;
+  }
 }
 
 /** 播放/暂停图标跟着实际状态走 */

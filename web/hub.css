@@ -19,11 +19,10 @@ button { cursor: pointer; color: inherit; }
 a { color: inherit; text-decoration: none; }
 button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
-.hub-shell { height: 100dvh; display: grid; grid-template-columns: 250px minmax(0, 1fr); background: var(--page); transition: grid-template-columns .28s cubic-bezier(.4, 0, .2, 1); }
-/* 进观看页后把左侧主播栏收起来：看直播是沉浸场景，250px 让给视频更值 */
-.hub-shell.is-watching { grid-template-columns: 0 minmax(0, 1fr); }
-.hub-shell.is-watching .roster { opacity: 0; pointer-events: none; transform: translateX(-14px); }
-.roster { min-height: 0; display: flex; flex-direction: column; overflow: hidden; padding: 22px 14px 14px; background: #15181e; border-right: 1px solid var(--line); transition: opacity .2s ease, transform .24s cubic-bezier(.4, 0, .2, 1); }
+.hub-shell { height: 100dvh; display: grid; grid-template-columns: 250px minmax(0, 1fr); background: var(--page); }
+/* 左侧主播栏任何时候都在：这是产品的导航骨架，看直播时也要能顺手换主播，
+   画面不够宽就让弹幕列让，不动导航栏 */
+.roster { min-height: 0; display: flex; flex-direction: column; padding: 22px 14px 14px; background: #15181e; border-right: 1px solid var(--line); }
 .brand { display: flex; align-items: center; gap: 11px; padding: 2px 7px 19px; }
 .brand-mark { display: grid; place-items: center; width: 36px; height: 36px; border-radius: 12px; color: #10150c; background: var(--accent); font-size: 20px; font-weight: 800; box-shadow: 0 8px 25px -16px var(--accent); }
 .brand-copy { display: flex; flex-direction: column; line-height: 1.2; }
@@ -243,7 +242,12 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .watch-room-copy p { margin: 4px 0 0; color: #9ba1ac; font-size: 12px; }
 .watch-category { margin-left: auto; color: #969ca7; font-size: 11.5px; }
 /* min-height:0 一路往下传，否则 flex 子项会以内容高度为下限、填不满也不肯缩 */
-.watch-layout { flex: 1 1 auto; min-height: 0; display: grid; grid-template-columns: minmax(0, 2.2fr) minmax(292px, .7fr); align-items: stretch; gap: 17px; }
+/*
+ * 高度由内容决定（flex: none）而不是撑满剩余空间：
+ * 这样播放器和弹幕列严格等高平齐，多出来的空间留在下方而不是塞进容器里。
+ * 弹幕列给一个随窗口缩放的固定宽度，宽度不够时优先让弹幕让路。
+ */
+.watch-layout { flex: none; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) clamp(272px, 21vw, 320px); align-items: stretch; gap: 17px; }
 .player-column { min-width: 0; min-height: 0; display: flex; flex-direction: column; justify-content: center; }
 /* container-type 供下面的控制条分级收缩查询（按播放器自身宽度，而不是窗口宽度） */
 .watch-player { position: relative; width: 100%; flex: none; aspect-ratio: 16 / 9; display: grid; place-items: center; overflow: hidden; container-type: inline-size; border: 1px solid #343945; border-radius: 16px; background: #050608; box-shadow: 0 40px 90px -38px #000, 0 2px 10px -4px rgba(0,0,0,.6); }
@@ -341,7 +345,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
  * 弹幕列：面板绝对定位撑满这一格，自身不产生高度贡献，
  * 这样网格行高就只由左侧播放器列决定 —— 否则弹幕越多行越高，整个页面被拽长。
  */
-.danmaku-column { position: relative; min-width: 0; min-height: 410px; }
+.danmaku-column { position: relative; min-width: 0; min-height: 420px; }
 .danmaku-panel { position: absolute; inset: 0; min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow: hidden; border: 1px solid rgba(255,255,255,.055); border-radius: 16px; background: rgba(21,24,30,.94); backdrop-filter: blur(14px); box-shadow: 0 30px 70px -40px #000; }
 .danmaku-header { flex: none; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 15px 15px 12px; border-bottom: 1px solid rgba(255,255,255,.065); }
 .danmaku-header h2 { margin: 0; color: #e8eaf0; font-size: 14px; font-weight: 650; }
