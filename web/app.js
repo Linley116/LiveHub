@@ -242,7 +242,7 @@ function renderPlatformFilters() {
   $('#platformFilters').innerHTML = [
     `<button class="filter-chip ${state.platform === 'all' ? 'is-selected' : ''}" data-platform="all">全部平台</button>`,
     ...platformIds.map((id) => `<button class="filter-chip ${state.platform === id ? 'is-selected' : ''}" data-platform="${id}">
-      <i style="--platform-color:${platform(id).color}"></i>${platform(id).short}<span>${counts.get(id)}</span>
+      <i style="--platform-color:${platform(id).color}"></i>${platform(id).short}
     </button>`),
   ].join('');
   $('#platformFilters').querySelectorAll('[data-platform]').forEach((button) => {
@@ -283,10 +283,11 @@ function renderCard(room) {
   const pending = room.pending || room.lastChecked === null;
   // 状态只在封面上留一个信号：直播中（红点）/ 待更新（黄点）。
   // 未开播不再放胶囊，封面压灰 + 居中「未开播」，整页少一排灰胶囊，干净很多。
+  // 状态只用一个小圆点表达，不再每条都挂「直播中」胶囊——四张卡片重复同一个标签很吵
   const stateChip = pending
-    ? '<span class="live-state is-pending"><i></i>信息待更新</span>'
+    ? '<span class="live-state is-pending" title="信息待更新" aria-label="信息待更新"><i></i></span>'
     : room.live
-      ? '<span class="live-state is-live"><i></i>直播中</span>'
+      ? '<span class="live-state is-live" title="直播中" aria-label="直播中"><i></i></span>'
       : '';
   // 人气从标题行挪到封面左下角，标题行只留标题
   const audience = room.live && room.online ? `<span class="cover-audience" title="房间人气">${fmtNum(room.online)}<em>人气</em></span>` : '';
@@ -439,14 +440,8 @@ function setWatchTags(room) {
   const platformTag = $('#watchPlatformTag');
   if (platformTag) platformTag.textContent = platform(room.platform).name;
 
-  const roomTag = $('#watchRoomTag');
-  if (roomTag) roomTag.textContent = `房间号 ${room.roomId}`;
-
-  const areaTag = $('#watchAreaTag');
-  if (areaTag) {
-    areaTag.textContent = room.area || '';
-    areaTag.hidden = !room.area;
-  }
+  // 房间号不进视觉层（挪到 title 里，悬停可见）；分区并入副标题，标签只留平台 + 人气
+  if (heading) heading.title = `房间号 ${room.roomId}`;
 
   const onlineTag = $('#watchOnlineTag');
   if (onlineTag) {
@@ -503,10 +498,9 @@ async function enterWatchRoom(room) {
   state.currentRoom = room;
   $('#catalog').hidden = true;
   $('#watchPage').hidden = false;
-  $('#watchPlatformName').textContent = platform(room.platform).name;
   $('#watchLiveState').textContent = room.live ? '正在直播' : '准备进入';
   $('#watchTitle').textContent = roomName(room);
-  $('#watchAnchor').textContent = creatorName(room);
+  $('#watchAnchor').textContent = [creatorName(room), room.area].filter(Boolean).join(' · ');
   setWatchAvatar(room);
   $('#danmakuOverlay').replaceChildren();
   $('#danmakuOverlay').classList.remove('is-visible');
@@ -1305,7 +1299,7 @@ async function loadWatchRoom(room, options = {}) {
       lastChecked: Date.now(),
     });
     $('#watchTitle').textContent = roomName(room);
-    $('#watchAnchor').textContent = creatorName(room);
+    $('#watchAnchor').textContent = [creatorName(room), room.area].filter(Boolean).join(' · ');
       setWatchAvatar(room);
     $('#watchLiveState').textContent = data.live ? '正在直播' : '暂未开播';
     const cachedRoom = state.rooms.find((item) => item.key === room.key);
