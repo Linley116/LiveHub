@@ -1477,22 +1477,12 @@ function startPlayWatchdog() {
 // 重连节流：分片流会周期性结束，别让重连本身变成风暴
 let lastReconnectAt = 0;
 
-// ---- 目标缓冲控制 ----
-// 现象：起播时有 5~6 秒缓冲，看几分钟后掉到 1~2 秒，然后开始卡。
-// 原因是**下载速率比播放速率略慢**（差几个百分点），缓冲被一点点吃干；
-// 而原来的控制是「低到 2 秒才踩一脚 0.94」，等它踩下去时已经晚了。
-//
-// 改成**按目标值连续微调**（YouTube / Twitch 的做法）：离目标越远放得越慢，
-// 让播放速度自动收敛到「刚好等于实际下载速率」，缓冲就稳在目标线上不再漏。
-// 用户已明确「延迟稳定即可、不能卡」，5 秒延迟换来稳定观看是划算的。
-// 实测（真实 app、B站原画 1920x1080）：正常需要约 8 Mbps，
-// 但上游会周期性塌到 1.2~4 Mbps，持续十几秒到几十秒，5 秒缓冲不够吃。
-// 所以目标定在 10 秒——比「最低延迟」更值钱的是扛住这种塌陷。
-const BUF_TARGET = 10.0;  // 目标缓冲（= 播放器右下角显示的延迟）
-const BUF_CEIL = 14.0;    // 超过它就用 1.05x 慢慢追，避免延迟无限涨
-const BUF_FLOOR = 2.0;    // 到这个水位已经全力放慢
-const RATE_MIN = 0.90;    // 最多放慢 10%，塌陷期靠这 10% 慢慢把余量攒回来
-const RATE_MAX = 1.05;
+// ---- 缓冲监控（不调倍速）----
+// 不做 playbackRate 微调：起播就是 1.0 倍速，视频按原速播放。
+// 只保留一件事——缓冲持续见底时降一档清晰度，避免真的卡死。
+// 缓冲厚度交给起播预缓冲（stash）和自然积累决定。
+const BUF_STALL = 1.2;     // 低于此值视为见底
+const BUF_STALL_MS = 8000; // 持续这么久就降档
 
 let bufferTimer;
 function startBufferController() {
@@ -1502,39 +1492,19 @@ function startBufferController() {
 function stopBufferController() {
   clearInterval(bufferTimer);
   bufferTimer = null;
-  const video = $('#watchVideo');
-  if (video && video.playbackRate !== 1) video.playbackRate = 1;
 }
 
 function tunePlaybackRate() {
   const video = $('#watchVideo');
   if (!video || !state.currentRoom) return;
-  if (video.paused || video.ended || video.seeking) {
-    if (video.playbackRate !== 1) video.playbackRate = 1;
-    return;
-  }
   const ranges = video.buffered;
   if (!ranges || !ranges.length) return;
   const depth = ranges.end(ranges.length - 1) - video.currentTime;
   if (!Number.isFinite(depth) || depth <= 0) return;
 
-  let rate = 1;
-  if (depth >= BUF_CEIL) {
-    rate = Math.min(RATE_MAX, 1 + (depth - BUF_CEIL) * 0.01);
-  } else if (depth < BUF_TARGET) {
-    // 6s→1.0 4s→0.96 2s→0.92（线性，离目标越远越慢）
-    const deficit = (BUF_TARGET - depth) / (BUF_TARGET - BUF_FLOOR);
-    rate = Math.max(RATE_MIN, 1 - 0.10 * Math.min(1, deficit));
-  }
-  // 变化幅度太小就别写，省得频繁触发音频重采样
-  if (Math.abs(video.playbackRate - rate) > 0.005) {
-    video.playbackRate = Number(rate.toFixed(3));
-  }
-
-  // 已经全力放慢却还是见底：说明这档码率确实超出链路能力，主动降档
-  if (depth < 1.2) {
+  if (depth < BUF_STALL) {
     player.lowBufferSince = player.lowBufferSince || Date.now();
-    if (Date.now() - player.lowBufferSince > 8000) {
+    if (Date.now() - player.lowBufferSince > BUF_STALL_MS) {
       player.lowBufferSince = 0;
       degradeQuality();
     }
