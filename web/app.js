@@ -1481,6 +1481,8 @@ let lastReconnectAt = 0;
 // 不做 playbackRate 微调：起播就是 1.0 倍速，视频按原速播放。
 // 只保留一件事——缓冲持续见底时降一档清晰度，避免真的卡死。
 // 缓冲厚度交给起播预缓冲（stash）和自然积累决定。
+// 起播预缓冲（KB）：码率越高、下发越不稳的平台给得越厚
+const STASH_BY_PLATFORM = { douyin: 6144, bilibili: 4096, huya: 3072, douyu: 3072 };
 const BUF_STALL = 1.2;     // 低于此值视为见底
 const BUF_STALL_MS = 8000; // 持续这么久就降档
 
@@ -1836,10 +1838,10 @@ function playStream(stream) {
       // 主线程一忙就供不上，画面「停住等一会儿再跳」。
       // 开回来让 mpegts 自己攒一段再喂，平稳得多；多出来的延迟用户已明确可接受。
       enableStashBuffer: true,
-      // 起始攒 3MB 再开播（约 4~6 秒）。实测抖音原画这条线，下载速度只比播放速度快一点，
-      // 贴着直播点起播的话缓冲永远只有 0~3 秒，网络一抖就冻屏（实测停顿瞬间缓冲恰好 0.0s）。
-      // 多等 3 秒换 3~4 秒的推进余量，符合「延迟稳定即可、不能卡」的取舍。
-      stashInitialSize: 3072,
+      // 起播预缓冲按平台给：同一份 3MB 在不同码率下换算出的秒数差很多。
+      // 实测（家庭网络）：虎牙 3MB≈7s、斗鱼≈4.5s、B站原画≈2s、抖音原画常常 0.5~1.4s
+      // ——抖音码率最高且下发节奏最不均（同一房间缓冲能从 0.05s 跳到 18s），给厚一点。
+      stashInitialSize: STASH_BY_PLATFORM[state.currentRoom?.platform] || 3072,
       lazyLoad: false,
       autoCleanupSourceBuffer: true,
       liveBufferLatencyChasing: true,
