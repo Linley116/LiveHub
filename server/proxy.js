@@ -143,6 +143,9 @@ async function handleProxy(req, res) {
     return res.send(rewritten);
   }
 
+  const isFlv = /x-flv|flv/i.test(ctype) || /\.flv(\?|$)/i.test(url.pathname + url.search);
+  if (isFlv) return streamFlv({ url: url.href, platform, headers, res, upstream });
+
   for (const h of ['content-type', 'content-length', 'content-range', 'accept-ranges', 'last-modified', 'etag']) {
     const v = upstream.headers.get(h);
     if (v) res.set(h, v);
@@ -154,6 +157,131 @@ async function handleProxy(req, res) {
     await pipeline(Readable.fromWeb(upstream.body), res);
   } catch {
     res.destroy();
+  }
+}
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * FLV 直播流专用转发：抖动缓冲 + 断流透明重连。
+ *
+ * 为什么需要：
+ * 1. 虎牙的 FLV 连接会被服务端在约 127 秒后关闭，上游一断客户端就看到 EOF，
+ *    播放器只能整体重连，表现就是「每两分钟卡一下、然后重新缓冲」。这里在上游
+ *    EOF 后自己用同一地址重连（实测时间戳连续：48416622ms → 48539695ms），
+ *    跳过新连接重复的 FLV 头，客户端看到的字节流没有断点。
+ * 2. 抖音/CDN 的数据是爆发式下发，忽快忽慢。这里对每块数据做固定延迟转发，
+ *    相当于在服务端放一个抖动缓冲，上游短暂停顿不会立刻传导到播放器。
+ *
+ * 只作用于 FLV（所有四个平台现在都走 FLV）；HLS 的分片是短文件，走原逻辑。
+ */
+const FLV_JITTER_MS = Number(process.env.LIVEHUB_FLV_JITTER_MS ?? 800);
+const FLV_MAX_QUEUE = 24 * 1024 * 1024;
+
+async function streamFlv({ url, platform, headers, res, upstream }) {
+  for (const h of ['content-type', 'content-range', 'accept-ranges', 'last-modified', 'etag']) {
+    const v = upstream.headers.get(h);
+    if (v) res.set(h, v);
+  }
+  if (!res.get('content-type')) res.set('Content-Type', 'video/x-flv');
+  res.status(200);
+
+  const queue = [];
+  let queuedBytes = 0;
+  let closed = false;
+  res.on('close', () => { closed = true; });
+
+  // 定时把「已经等了够久」的数据写出去
+  const pump = setInterval(() => {
+    if (closed) return;
+    while (queue.length && Date.now() - queue[0].at >= FLV_JITTER_MS) {
+      const item = queue.shift();
+      queuedBytes -= item.chunk.length;
+      try {
+        res.write(item.chunk);
+      } catch {
+        closed = true;
+        return;
+      }
+    }
+  }, 25);
+
+  const enqueue = (chunk) => {
+    queue.push({ chunk, at: Date.now() });
+    queuedBytes += chunk.length;
+  };
+
+  // 把一条上游连接的数据读进队列。
+  // 返回 'done'（正常结束）/ 'error'（被对端掐断，undici 会抛 TypeError: terminated）/
+  // 'closed'（客户端已经走了）。三种里前两种都要重连，不能直接收尾——
+  // 之前把 error 当结束处理，结果虎牙一断流代理就结束响应。
+  const feed = async (reader) => {
+    for (;;) {
+      let chunk;
+      try {
+        chunk = await reader.read();
+      } catch {
+        return 'error';
+      }
+      const { done, value } = chunk;
+      if (done) return 'done';
+      if (closed) { try { await reader.cancel(); } catch {} return 'closed'; }
+      if (value && value.length) {
+        while (queuedBytes > FLV_MAX_QUEUE && !closed) await sleep(60);
+        enqueue(Buffer.from(value));
+      }
+    }
+  };
+
+  let firstChunk = true;
+  let fails = 0;
+
+  try {
+    // 第一段用已经建立好的连接
+    let reader = upstream.body ? upstream.body.getReader() : null;
+    if (!reader) return res.end();
+
+    for (;;) {
+      const why = await feed(reader);
+      if (closed || why === 'closed') break;
+      await sleep(why === 'error' ? 60 : 120);
+
+      // 重连
+      let next;
+      try {
+        next = await fetch(url, { headers, redirect: 'follow' });
+      } catch {
+        next = null;
+      }
+      if (!next || !next.ok || !next.body) {
+        fails += 1;
+        if (fails >= 3) break;      // 连续失败就放弃，让客户端自己重连
+        await sleep(400 * fails);
+        continue;
+      }
+      reader = next.body.getReader();
+      // 重连后的第一块如果带 FLV 头（FLV\x01 + 9 字节头 + 4 字节 PreviousTagSize0），去掉
+      const { done, value } = await reader.read();
+      if (done) continue;
+      let chunk = Buffer.from(value);
+      if (chunk.length >= 13 && chunk.slice(0, 3).toString() === 'FLV') chunk = chunk.slice(13);
+      enqueue(chunk);
+      firstChunk = false;
+      fails = 0;
+    }
+  } catch {
+    // 上游异常：让客户端看到结束，走它自己的重连
+  } finally {
+    clearInterval(pump);
+    if (!closed) {
+      // 把队列里剩下的数据排空再收尾
+      while (queue.length && !closed) {
+        const item = queue.shift();
+        try { res.write(item.chunk); } catch { break; }
+        await sleep(10);
+      }
+      try { res.end(); } catch {}
+    }
   }
 }
 
