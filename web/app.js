@@ -555,6 +555,8 @@ async function enterWatchRoom(room) {
   player.shortStreams = 0;
   player.starveMarks = [];
   player.degrading = false;
+  player.triedLines = [];
+  player.lineFailoverAt = 0;
   player.diagLastAt = {};
   player.diagCount = 0;
   player.diagBufferLow = 99;
@@ -1478,15 +1480,21 @@ function startPlayWatchdog() {
 let lastReconnectAt = 0;
 
 // ---- 目标缓冲控制 ----
-// 成熟播放器（YouTube / Twitch / B 站）都靠微调 playbackRate 把缓冲压在目标区间：
-// 缓冲薄了就放慢一点点，让下载把缓冲补回来；厚了就加快一点点追回延迟。
-// mpegts 自带的 liveSync 只会加速追延迟，不会放慢攒缓冲，所以这里自己做一个。
-// 用户已明确「延迟稳定即可、不能卡」，多 1~3 秒延迟换抗抖动余量是划算的。
-const BUF_LOW = 2.0;     // 低于此值开始放慢攒缓冲
-const BUF_TARGET = 4.5;  // 攒到这个值恢复正常速度
-const BUF_HIGH = 8.0;    // 超过此值轻微加速，避免延迟无限增长
-const RATE_SLOW = 0.94;
-const RATE_FAST = 1.04;
+// 现象：起播时有 5~6 秒缓冲，看几分钟后掉到 1~2 秒，然后开始卡。
+// 原因是**下载速率比播放速率略慢**（差几个百分点），缓冲被一点点吃干；
+// 而原来的控制是「低到 2 秒才踩一脚 0.94」，等它踩下去时已经晚了。
+//
+// 改成**按目标值连续微调**（YouTube / Twitch 的做法）：离目标越远放得越慢，
+// 让播放速度自动收敛到「刚好等于实际下载速率」，缓冲就稳在目标线上不再漏。
+// 用户已明确「延迟稳定即可、不能卡」，5 秒延迟换来稳定观看是划算的。
+// 实测（真实 app、B站原画 1920x1080）：正常需要约 8 Mbps，
+// 但上游会周期性塌到 1.2~4 Mbps，持续十几秒到几十秒，5 秒缓冲不够吃。
+// 所以目标定在 10 秒——比「最低延迟」更值钱的是扛住这种塌陷。
+const BUF_TARGET = 10.0;  // 目标缓冲（= 播放器右下角显示的延迟）
+const BUF_CEIL = 14.0;    // 超过它就用 1.05x 慢慢追，避免延迟无限涨
+const BUF_FLOOR = 2.0;    // 到这个水位已经全力放慢
+const RATE_MIN = 0.90;    // 最多放慢 10%，塌陷期靠这 10% 慢慢把余量攒回来
+const RATE_MAX = 1.05;
 
 let bufferTimer;
 function startBufferController() {
@@ -1512,16 +1520,56 @@ function tunePlaybackRate() {
   const depth = ranges.end(ranges.length - 1) - video.currentTime;
   if (!Number.isFinite(depth) || depth <= 0) return;
 
-  const rate = video.playbackRate;
-  if (depth < BUF_LOW && rate > RATE_SLOW) {
-    video.playbackRate = RATE_SLOW;          // 攒缓冲
-  } else if (depth >= BUF_TARGET && rate < 1) {
-    video.playbackRate = 1;                  // 攒够了恢复正常
-  } else if (depth > BUF_HIGH && rate <= 1) {
-    video.playbackRate = RATE_FAST;          // 落后太多，轻轻追一下
-  } else if (depth < BUF_TARGET + 1 && rate > 1) {
-    video.playbackRate = 1;
+  let rate = 1;
+  if (depth >= BUF_CEIL) {
+    rate = Math.min(RATE_MAX, 1 + (depth - BUF_CEIL) * 0.01);
+  } else if (depth < BUF_TARGET) {
+    // 6s→1.0 4s→0.96 2s→0.92（线性，离目标越远越慢）
+    const deficit = (BUF_TARGET - depth) / (BUF_TARGET - BUF_FLOOR);
+    rate = Math.max(RATE_MIN, 1 - 0.10 * Math.min(1, deficit));
   }
+  // 变化幅度太小就别写，省得频繁触发音频重采样
+  if (Math.abs(video.playbackRate - rate) > 0.005) {
+    video.playbackRate = Number(rate.toFixed(3));
+  }
+
+  // 已经全力放慢却还是见底：说明这档码率确实超出链路能力，主动降档
+  if (depth < 1.2) {
+    player.lowBufferSince = player.lowBufferSince || Date.now();
+    if (Date.now() - player.lowBufferSince > 8000) {
+      player.lowBufferSince = 0;
+      // 先换同清晰度的兄弟节点，全试过才降清晰度
+      if (!tryAlternateLine()) degradeQuality();
+    }
+  } else {
+    player.lowBufferSince = 0;
+  }
+}
+
+// ---- 线路故障切换 ----
+// B 站每档会下发多个 CDN 节点，之前只用第一个：碰上被限速的节点
+// （实测掉到 51 KB/s，正常要 1000）整条流就废了，只能降清晰度。
+// 缓冲持续见底时先在同清晰度里换节点，全试过才降档。
+function tryAlternateLine() {
+  const list = currentQualityStreams();
+  if (list.length < 2) return false;
+  if (Date.now() - (player.lineFailoverAt || 0) < 25_000) return false;
+  player.triedLines = player.triedLines || [];
+  const current = list[player.line];
+  for (let step = 1; step < list.length; step++) {
+    const idx = (player.line + step) % list.length;
+    const next = list[idx];
+    if (!next || next.url === current?.url) continue;
+    if (player.triedLines.includes(next.url)) continue;
+    player.triedLines.push(next.url);
+    player.lineFailoverAt = Date.now();
+    player.line = idx;
+    renderQualityControls();
+    showQualityHint(`当前线路不稳定，已切到备用节点（${lineLabel(next, idx)}）`);
+    playStream(next);
+    return true;
+  }
+  return false;
 }
 
 // ---- 卡顿取证 ----
@@ -1535,6 +1583,7 @@ const DIAG_MAX = 60;          // 单次观看最多记这么多条，防刷
 
 let diagTimer;
 let diagPeriodic;
+let diagFrameId;
 function startStallProbe() {
   stopStallProbe();
   player.diagRing = [];
@@ -1543,9 +1592,35 @@ function startStallProbe() {
   player.diagCount = 0;
   player.diagBufferLow = 99;
   diagTimer = setInterval(samplePlayback, DIAG_SAMPLE_MS);
+  startFrameProbe();
   // 每 60 秒记一条「一切正常」的快照：万一用户说卡但我们没抓到事件，
   // 也能从这些快照看出缓冲是一直很薄还是偶发见底
   diagPeriodic = setInterval(() => reportEvent('periodic'), 60_000);
+}
+
+/**
+ * 按帧计时：0.5 秒采样只能发现 0.5 秒以上的冻结，
+ * 而「卡一下」经常只有 100~300ms（掉几帧）。requestVideoFrameCallback
+ * 能拿到每一帧真正上屏的时刻，用它统计帧间隔，才能量化这种轻微顿挫。
+ */
+function startFrameProbe() {
+  const video = $('#watchVideo');
+  player.frameStats = { since: Date.now(), frames: 0, over100: 0, over200: 0, maxGap: 0, last: 0 };
+  if (!video?.requestVideoFrameCallback) return;
+  const onFrame = (now) => {
+    const st = player.frameStats;
+    if (!st) return;
+    if (st.last) {
+      const gap = now - st.last;
+      st.frames += 1;
+      if (gap > 100) st.over100 += 1;
+      if (gap > 200) st.over200 += 1;
+      if (gap > st.maxGap) st.maxGap = Math.round(gap);
+    }
+    st.last = now;
+    diagFrameId = video.requestVideoFrameCallback(onFrame);
+  };
+  diagFrameId = video.requestVideoFrameCallback(onFrame);
 }
 
 function stopStallProbe() {
@@ -1553,6 +1628,12 @@ function stopStallProbe() {
   clearInterval(diagPeriodic);
   diagTimer = null;
   diagPeriodic = null;
+  const video = $('#watchVideo');
+  if (diagFrameId && video?.cancelVideoFrameCallback) {
+    try { video.cancelVideoFrameCallback(diagFrameId); } catch {}
+  }
+  diagFrameId = null;
+  player.frameStats = null;
   player.diagRing = [];
   player.diagFrozenSince = 0;
 }
@@ -1611,6 +1692,22 @@ function reportEvent(kind, extra = {}) {
   const ranges = video.buffered;
   const depth = ranges && ranges.length ? ranges.end(ranges.length - 1) - video.currentTime : 0;
   const quality = video.getVideoPlaybackQuality ? video.getVideoPlaybackQuality() : {};
+  // 帧统计：报告后重置，得到「这一分钟里掉帧几次」的增量
+  const st = player.frameStats;
+  let frameStats = null;
+  if (st) {
+    const secs = (now - st.since) / 1000;
+    frameStats = {
+      secs: +secs.toFixed(0),
+      frames: st.frames,
+      fps: secs > 0 ? +(st.frames / secs).toFixed(1) : 0,
+      hitch100: st.over100,
+      hitch200: st.over200,
+      maxGap: st.maxGap,
+    };
+    st.since = now; st.frames = 0; st.over100 = 0; st.over200 = 0; st.maxGap = 0;
+  }
+
   const payload = {
     kind,
     platform: room.platform,
@@ -1625,6 +1722,9 @@ function reportEvent(kind, extra = {}) {
     dropped: quality.droppedVideoFrames || 0,
     video: { w: video.videoWidth, h: video.videoHeight, dpr: devicePixelRatio, win: `${innerWidth}x${innerHeight}` },
     speed: player.flv?.statisticsInfo?.speed ?? null,
+    frames: frameStats,
+    focused: document.hasFocus(),
+    visible: document.visibilityState,
     ...extra,
     sample: player.diagRing.slice(-30),
   };
@@ -1795,10 +1895,10 @@ function playStream(stream) {
       // 主线程一忙就供不上，画面「停住等一会儿再跳」。
       // 开回来让 mpegts 自己攒一段再喂，平稳得多；多出来的延迟用户已明确可接受。
       enableStashBuffer: true,
-      // 起始攒 2MB 再开播（约 3~4 秒）。实测抖音原画这条线，下载速度只比播放速度快一点，
+      // 起始攒 3MB 再开播（约 4~6 秒）。实测抖音原画这条线，下载速度只比播放速度快一点，
       // 贴着直播点起播的话缓冲永远只有 0~3 秒，网络一抖就冻屏（实测停顿瞬间缓冲恰好 0.0s）。
       // 多等 3 秒换 3~4 秒的推进余量，符合「延迟稳定即可、不能卡」的取舍。
-      stashInitialSize: 2048,
+      stashInitialSize: 3072,
       lazyLoad: false,
       autoCleanupSourceBuffer: true,
       liveBufferLatencyChasing: true,

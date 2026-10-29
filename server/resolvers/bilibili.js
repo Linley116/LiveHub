@@ -105,15 +105,22 @@ export async function resolve(roomId, opts = {}) {
     const isHls = st.protocol_name === 'http_hls';
     for (const fmt of st.format || []) {
       for (const codec of fmt.codec || []) {
-        const node = codec.url_info?.[0];
-        if (!node) continue;
-        streams.push({
-          name: `${QN_NAME[codec.current_qn] || codec.current_qn + 'P'} · ${isHls ? 'HLS' : 'FLV'}`,
-          type: isHls ? 'hls' : 'flv',
-          url: node.host + codec.base_url + (node.extra || ''),
-          qn: codec.current_qn,
-          codec: codec.codec_name,
-          format: fmt.format_name,
+        // B 站每个档位会给多个 CDN 节点（url_info）。以前只用第 0 个，
+        // 一旦那个节点开始限速（实测掉到 51KB/s）整条流就废了。
+        // 这里把前 3 个节点都作为独立线路下发，卡住时可以切。
+        const nodes = (codec.url_info || []).slice(0, 3);
+        nodes.forEach((node, hostIndex) => {
+          if (!node) return;
+          const baseName = `${QN_NAME[codec.current_qn] || codec.current_qn + 'P'} · ${isHls ? 'HLS' : 'FLV'}`;
+          streams.push({
+            name: hostIndex ? `${baseName} · 线路${hostIndex + 1}` : baseName,
+            type: isHls ? 'hls' : 'flv',
+            url: node.host + codec.base_url + (node.extra || ''),
+            qn: codec.current_qn,
+            codec: codec.codec_name,
+            format: fmt.format_name,
+            hostIndex,
+          });
         });
       }
     }
@@ -162,10 +169,10 @@ function rankStreams(list) {  const score = (s) => (s.codec === 'avc' ? 100 : 0)
   const seen = new Set();
   const out = [];
   for (const s of sorted) {
-    const key = `${s.qn}|${s.type}|${s.codec}`;
+    const key = `${s.qn}|${s.type}|${s.codec}|${s.hostIndex || 0}`;
     if (seen.has(key)) continue;
     seen.add(key);
     out.push(s);
   }
-  return out.slice(0, 8);
+  return out.slice(0, 12);
 }
