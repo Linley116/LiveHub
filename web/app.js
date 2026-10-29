@@ -555,8 +555,6 @@ async function enterWatchRoom(room) {
   player.shortStreams = 0;
   player.starveMarks = [];
   player.degrading = false;
-  player.triedLines = [];
-  player.lineFailoverAt = 0;
   player.diagLastAt = {};
   player.diagCount = 0;
   player.diagBufferLow = 99;
@@ -1538,38 +1536,11 @@ function tunePlaybackRate() {
     player.lowBufferSince = player.lowBufferSince || Date.now();
     if (Date.now() - player.lowBufferSince > 8000) {
       player.lowBufferSince = 0;
-      // 先换同清晰度的兄弟节点，全试过才降清晰度
-      if (!tryAlternateLine()) degradeQuality();
+      degradeQuality();
     }
   } else {
     player.lowBufferSince = 0;
   }
-}
-
-// ---- 线路故障切换 ----
-// B 站每档会下发多个 CDN 节点，之前只用第一个：碰上被限速的节点
-// （实测掉到 51 KB/s，正常要 1000）整条流就废了，只能降清晰度。
-// 缓冲持续见底时先在同清晰度里换节点，全试过才降档。
-function tryAlternateLine() {
-  const list = currentQualityStreams();
-  if (list.length < 2) return false;
-  if (Date.now() - (player.lineFailoverAt || 0) < 25_000) return false;
-  player.triedLines = player.triedLines || [];
-  const current = list[player.line];
-  for (let step = 1; step < list.length; step++) {
-    const idx = (player.line + step) % list.length;
-    const next = list[idx];
-    if (!next || next.url === current?.url) continue;
-    if (player.triedLines.includes(next.url)) continue;
-    player.triedLines.push(next.url);
-    player.lineFailoverAt = Date.now();
-    player.line = idx;
-    renderQualityControls();
-    showQualityHint(`当前线路不稳定，已切到备用节点（${lineLabel(next, idx)}）`);
-    playStream(next);
-    return true;
-  }
-  return false;
 }
 
 // ---- 卡顿取证 ----

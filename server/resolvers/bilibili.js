@@ -106,8 +106,8 @@ export async function resolve(roomId, opts = {}) {
     for (const fmt of st.format || []) {
       for (const codec of fmt.codec || []) {
         // B 站每个档位会给多个 CDN 节点（url_info）。以前只用第 0 个，
-        // 一旦那个节点开始限速（实测掉到 51KB/s）整条流就废了。
-        // 这里把前 3 个节点都作为独立线路下发，卡住时可以切。
+        // 碰上那个节点不好就无解。这里把前 3 个都下发，作为用户**手动**可选线路
+        // （不做自动切换：实测卡顿多是用户侧链路整体降速，换节点救不了）。
         const nodes = (codec.url_info || []).slice(0, 3);
         nodes.forEach((node, hostIndex) => {
           if (!node) return;
