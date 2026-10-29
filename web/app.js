@@ -1574,12 +1574,14 @@ function playStream(stream) {
     }
   } else if (stream.type === 'flv' && window.mpegts && mpegts.isSupported()) {
     const flv = mpegts.createPlayer({ type: 'flv', isLive: true, url: stream.url }, {
-      // 注：mpegts 的 worker 在 Electron 渲染进程里同样建不起来（实测直接起播失败），
+      // 注：mpegts 的 worker 在 Electron 渲染进程里同样建不起来（实测开了直接起播失败），
       // demux 只能留在主线程，所以高码率流的性能上限要靠在清晰度上让一步
-      // 直播场景关掉 stash，避免延迟越积越大；追帧阈值给宽一点，
-      // 否则 mpegts 会在 buffer 边界反复 seek，追着追着把自己卡在 paused
-      enableStashBuffer: false,
-      stashInitialSize: 128,
+      //
+      // 重新打开 stash buffer：之前为了让延迟不累积把它关了，结果是数据直通 MSE，
+      // 主线程一忙就供不上，画面「停住等一会儿再跳」。
+      // 开回来让 mpegts 自己攒一段再喂，平稳得多；多出来的延迟用户已明确可接受。
+      enableStashBuffer: true,
+      stashInitialSize: 512,
       lazyLoad: false,
       autoCleanupSourceBuffer: true,
       liveBufferLatencyChasing: true,
