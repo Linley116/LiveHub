@@ -502,9 +502,6 @@ async function enterWatchRoom(room) {
   $('#watchTitle').textContent = roomName(room);
   $('#watchAnchor').textContent = [creatorName(room), room.area].filter(Boolean).join(' · ');
   setWatchAvatar(room);
-  renderWatchSide(room);
-  const sideList = $('#sideList');
-  if (sideList) sideList.innerHTML = '<p class="side-empty" id="sideEmpty">弹幕会显示在这里</p>';
   $('#danmakuOverlay').replaceChildren();
   $('#danmakuOverlay').classList.remove('is-visible');
   $('#toggleOverlay').disabled = true;
@@ -976,9 +973,8 @@ function pushDanmaku(msg, { self = false } = {}) {
   if (!self && consumeSelfEcho(msg)) return;
 
   danmaku.count += 1;
-  // 弹幕直接飘在画面上（和主流直播网页一致）；竖屏时侧栏也留一份文字记录
+  // 弹幕直接飘在画面上（和主流直播网页一致）
   if (player.overlay) spawnOverlay(msg);
-  pushSideDanmaku(msg, self || msg.self);
   return null;
 }
 
@@ -1717,20 +1713,9 @@ function syncPlayerAspect() {
   // 高度已经由 min(可用宽/比例, 可用高) 兜住，竖屏不会顶出可视区，放心放开。
   const ratio = Math.min(Math.max(w / h, 0.5), 2.8);
   const column = stage.parentElement; // .player-column
-  let availW = column?.clientWidth || stage.clientWidth;
+  const availW = column?.clientWidth || stage.clientWidth;
   const availH = column?.clientHeight || 0;
   if (!availW) return;
-  // 竖屏（抖音手机直播这类）：窗口左右会空出大片区域，右侧补一栏信息 + 弹幕。
-  // 先切列再量尺寸——列宽变了，播放器的可用宽度也跟着变。
-  const layout = $('#watchLayout');
-  const portrait = ratio < 1;
-  if (layout && layout.classList.contains('is-portrait') !== portrait) {
-    layout.classList.toggle('is-portrait', portrait);
-  }
-  const side = $('#watchSide');
-  if (side) side.hidden = !portrait;
-
-  availW = column?.clientWidth || stage.clientWidth; // 切列之后重量一次
   const byWidth = availW / ratio;
   const height = availH ? Math.min(byWidth, availH) : byWidth;
   const width = height * ratio;
@@ -1738,53 +1723,7 @@ function syncPlayerAspect() {
   stage.style.height = `${Math.round(height)}px`;
 }
 
-/** 竖屏侧栏：主播信息 */
-function renderWatchSide(room) {
-  const side = $('#watchSide');
-  if (!side || !room) return;
-  side.style.setProperty('--platform-color', platform(room.platform).color);
-  const name = $('#sideName');
-  if (name) name.textContent = creatorName(room);
-  const meta = $('#sideMeta');
-  if (meta) {
-    meta.textContent = [platform(room.platform).name, room.area, room.online ? `${fmtNum(room.online)} 人气` : '']
-      .filter(Boolean)
-      .join(' · ');
-  }
-  const box = $('#sideAvatar');
-  const fallback = $('#sideAvatarFallback');
-  if (fallback) fallback.textContent = creatorName(room).slice(0, 1);
-  if (box) {
-    const old = box.querySelector('img');
-    if (old) old.remove();
-    if (room.avatar) {
-      const img = document.createElement('img');
-      img.src = room.avatar;
-      img.alt = '';
-      img.addEventListener('error', () => img.remove(), { once: true });
-      box.appendChild(img);
-    }
-  }
-}
 
-/** 一条弹幕进侧栏列表（只在竖屏侧栏可见时有意义） */
-function pushSideDanmaku(msg, isSelf) {
-  const list = $('#sideList');
-  if (!list || $('#watchSide')?.hidden) return;
-  const empty = $('#sideEmpty');
-  if (empty) empty.remove();
-  const row = document.createElement('div');
-  row.className = isSelf ? 'side-dm is-self' : 'side-dm';
-  const who = document.createElement('b');
-  who.textContent = msg.user || '匿名';
-  const text = document.createElement('span');
-  text.textContent = msg.content;
-  if (msg.color) text.style.color = msg.color;
-  row.append(who, text);
-  list.appendChild(row);
-  while (list.children.length > 80) list.firstElementChild?.remove();
-  list.scrollTop = list.scrollHeight;
-}
 
 /** 播放/暂停图标跟着实际状态走 */
 function syncPlayUI() {
