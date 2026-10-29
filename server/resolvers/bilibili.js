@@ -151,8 +151,13 @@ export async function resolve(roomId, opts = {}) {
   return result;
 }
 
-/** 优先 AVC+HLS，其次 AVC+FLV；码率从高到低，同组合去重。 */
-function rankStreams(list) {  const score = (s) => (s.codec === 'avc' ? 100 : 0) + (s.type === 'hls' ? 30 : 0) + (s.format === 'fmp4' ? 5 : 0);
+/**
+ * 优先 AVC+FLV，其次 AVC+HLS；码率从高到低，同组合去重。
+ * 用 FLV 而不是 HLS：B 站直播的 HLS 分片很短，hls.js 得不停拉清单+分片，
+ * 实测 60 秒内停顿 10 次（缓冲甚至出现负值）；同房间换 FLV 后只有 1 次、
+ * 缓冲能长到几十秒。直播场景下长连接的 FLV 明显更稳。
+ */
+function rankStreams(list) {  const score = (s) => (s.codec === 'avc' ? 100 : 0) + (s.type === 'flv' ? 30 : 0) + (s.format === 'fmp4' ? 5 : 0);
   const sorted = [...list].sort((a, b) => b.qn - a.qn || score(b) - score(a));
   const seen = new Set();
   const out = [];

@@ -48,6 +48,9 @@ const player = {
   shortStreams: 0,
   // 连续超阈值的次数，攒够几次才追帧
   lagHits: 0,
+  // 近期「等数据」的时间戳，用于判断是否该自动降档
+  starveMarks: [],
+  degrading: false,
   // 拆流/重连期间忽略错误事件，否则会形成重连死循环
   clearing: false,
   reconnecting: false,
@@ -548,6 +551,8 @@ async function enterWatchRoom(room) {
   // 恢复这个直播间上次的声音、线路、弹幕设置（清晰度要等服务端返回档位后再套用）。
   // 偏好存在服务端，第一次要先把它们拉回来，不然后面 apply 到的是空数据。
   player.shortStreams = 0;
+  player.starveMarks = [];
+  player.degrading = false;
   player.lastDuration = -1;
   player.durationStableAt = 0;
   await loadRoomPrefs();
@@ -1465,6 +1470,46 @@ function startPlayWatchdog() {
 // 重连节流：分片流会周期性结束，别让重连本身变成风暴
 let lastReconnectAt = 0;
 
+// ---- 自动降档：卡顿优先于画质 ----
+// 45 秒内出现 3 次「等数据」就认为这档码率超出网络能力，自动降一档。
+// 用户的原则是「第一优先不卡」，所以不加确认，直接降并提示一次。
+const STARVE_WINDOW = 45_000;
+const STARVE_LIMIT = 3;
+
+function onPlaybackStarved() {
+  const video = $('#watchVideo');
+  if (!state.currentRoom || !video) return;
+  // 刚起播/切档时的 waiting 属正常，播放头还没走起来就不算
+  if (video.currentTime < 5) return;
+  if (player.clearing || player.reconnecting || player.degrading) return;
+
+  const now = Date.now();
+  player.starveMarks = (player.starveMarks || []).filter((t) => now - t < STARVE_WINDOW);
+  player.starveMarks.push(now);
+  if (player.starveMarks.length < STARVE_LIMIT) return;
+  player.starveMarks = [];
+  degradeQuality();
+}
+
+/** 降到下一档清晰度；已经在最低档就什么都不做 */
+function degradeQuality() {
+  const room = state.currentRoom;
+  if (!room || player.degrading) return;
+  const list = player.qualities || [];
+  const idx = list.findIndex((q) => String(q.id) === String(player.quality));
+  if (idx < 0 || idx >= list.length - 1) {
+    if (list.length) showQualityHint('网络持续跟不上，已经在最低清晰度了');
+    return;
+  }
+  const next = list[idx + 1];
+  player.degrading = true;
+  showQualityHint(`网络跟不上，已自动切到「${next.name}」以保证不卡顿`);
+  Promise.resolve(changeQuality(next.id)).finally(() => {
+    // 给新档位一段稳定期，避免网络抖动时一路降到最低
+    setTimeout(() => { player.degrading = false; }, 20_000);
+  });
+}
+
 /**
  * 分片流结束（或播放位置往回跳）时重新取流。
  * 以前是直接切到内嵌官方页——但那等于放弃原生播放器；
@@ -1581,7 +1626,10 @@ function playStream(stream) {
       // 主线程一忙就供不上，画面「停住等一会儿再跳」。
       // 开回来让 mpegts 自己攒一段再喂，平稳得多；多出来的延迟用户已明确可接受。
       enableStashBuffer: true,
-      stashInitialSize: 512,
+      // 起始攒 2MB 再开播（约 3~4 秒）。实测抖音原画这条线，下载速度只比播放速度快一点，
+      // 贴着直播点起播的话缓冲永远只有 0~3 秒，网络一抖就冻屏（实测停顿瞬间缓冲恰好 0.0s）。
+      // 多等 3 秒换 3~4 秒的推进余量，符合「延迟稳定即可、不能卡」的取舍。
+      stashInitialSize: 2048,
       lazyLoad: false,
       autoCleanupSourceBuffer: true,
       liveBufferLatencyChasing: true,
@@ -2119,6 +2167,9 @@ async function init() {
     if (player.clearing || player.reconnecting) return;
     reconnectLiveStream('播放出错，正在自动重连…');
   });
+  // 网络供不上 → 播放器等数据（waiting）。偶尔一次不必管，
+  // 短时间内反复出现说明这档码率超出当前网络能力，自动降一档保流畅
+  $('#watchVideo').addEventListener('waiting', onPlaybackStarved);
   // 播放器尺寸是按「可用区域 + 视频比例」算出来的，窗口一变就得重算
   window.addEventListener('resize', syncPlayerAspect);
   setupPlayerBarAutoHide();
