@@ -344,17 +344,56 @@ app.patch('/api/rooms/:key', async (req, res) => {
  * 卡顿取证：前端检测到画面停顿时，把前后 30 秒的播放状态发过来落盘。
  * 只写本地文件、不上传，用于「用户说卡但开发环境复现不出来」时定位。
  */
+/** 快速测一次公网下行（KB/s），用于和播放器的下载速度对照 */
+async function quickSpeedTest() {
+  const LIMIT_BYTES = 6 * 1024 * 1024;
+  const LIMIT_MS = 2500;
+  let bytes = 0;
+  try {
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), LIMIT_MS + 3000);
+    const res = await fetch(`https://speed.cloudflare.com/__down?bytes=8000000&t=${Date.now()}`, {
+      signal: ctl.signal,
+      cache: 'no-store',
+    });
+    const reader = res.body.getReader();
+    // 从「收到第一块数据」开始计时：把 TLS 握手和建连排除掉，
+    // 否则 2 秒窗口里大半是握手，读出来只有真实速度的零头。
+    let t0 = 0;
+    while (bytes < LIMIT_BYTES) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!t0) t0 = Date.now();
+      bytes += value.length;
+      if (Date.now() - t0 > LIMIT_MS) break;
+    }
+    clearTimeout(timer);
+    await reader.cancel().catch(() => {});
+    const secs = t0 ? (Date.now() - t0) / 1000 : 0;
+    return secs > 0.3 ? Math.round(bytes / 1024 / secs) : -1;
+  } catch {
+    return -1;
+  }
+}
+
 app.post('/api/diagnostics', async (req, res) => {
   try {
     const dir = process.env.LIVEHUB_DATA_DIR || path.join(ROOT, 'data');
     await fs.mkdir(dir, { recursive: true });
     const file = path.join(dir, 'diagnostics.jsonl');
+    // 卡顿发生的那一刻，顺手测一次「公网整体速度」做对照。
+    // 只有卡顿事件才测（周期快照不测），避免无谓流量；每次最多 3MB、2 秒。
+    // 有它才能分清：是整体网络断了，还是只有这条直播流被限速。
+    let netKBs = null;
+    if (req.body?.kind === 'freeze' || req.body?.kind === 'waiting') {
+      netKBs = await quickSpeedTest();
+    }
     // 超过 3MB 就滚一份，避免无限增长
     try {
       const st = await fs.stat(file);
       if (st.size > 3 * 1024 * 1024) await fs.rename(file, file + '.1');
     } catch {}
-    const line = JSON.stringify({ at: new Date().toISOString(), ...req.body }) + '\n';
+    const line = JSON.stringify({ at: new Date().toISOString(), netKBs, ...req.body }) + '\n';
     await fs.appendFile(file, line);
     res.json({ ok: true });
   } catch (err) {
