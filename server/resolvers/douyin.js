@@ -173,9 +173,12 @@ function extractStreams(streamUrl) {
   }
 
   const order = { ORIGION: 0, FULL_HD1: 0, HD1: 1, SD1: 2, SD2: 3, LD1: 4, LD2: 5 };
+  // 同档位内优先 FLV：抖音的 HLS 分片是 4 秒一段，播放器只能贴着分片边界走，
+  // 实测时间轴每 4 秒才推进一次、帧率掉到 23fps（丢帧却是 0），画面明显一顿一顿。
+  // 换成 FLV 后时间轴每 0.5 秒平滑推进、稳定 60fps、延迟反而更低。
   return out.sort(
     (a, b) =>
       (order[a.quality] ?? 9) - (order[b.quality] ?? 9) ||
-      (a.type === 'hls' ? -1 : 1),
+      (a.type === 'flv' ? -1 : 1),
   );
 }
