@@ -95,6 +95,31 @@ const HOOK = `(() => {
 
 webFrame.executeJavaScript(HOOK).catch(() => {});
 
+/**
+ * 影子窗口只需要 /webcast/im/fetch/ 的响应体，不需要画面。
+ * 但抖音直播间页自带播放器，会解码同一路视频——主窗口已经解码一份了，
+ * 这里再解码一份等于白白多占一份 CPU/GPU，直播卡顿时它是主要嫌疑。
+ * 所以把视频压住：静音 + 暂停，页面重试就再压一次（成本远低于解码 1080p）。
+ */
+const STOP_VIDEO = `(() => {
+  if (window.__livehubStopVideo) return;
+  window.__livehubStopVideo = true;
+  const swat = () => {
+    document.querySelectorAll('video').forEach((v) => {
+      try {
+        v.muted = true;
+        v.removeAttribute('autoplay');
+        if (!v.paused) v.pause();
+      } catch {}
+    });
+  };
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', swat, { once: true });
+  swat();
+  setInterval(swat, 2000);
+})();`;
+
+webFrame.executeJavaScript(STOP_VIDEO).catch(() => {});
+
 window.addEventListener('message', (event) => {
   const data = event.data;
   if (!data || data.__livehub !== 'chunk' || !data.b64) return;

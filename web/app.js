@@ -1385,7 +1385,7 @@ async function changeQuality(quality) {
 // 注意 HLS 直播的 buffer 本来就领先播放点十几秒（hls.js liveSyncDurationCount=3），
 // 阈值设在个位数会导致每轮采样都 seek 一次，画面几秒一卡。
 // 这里只兜「真的跑偏了」的情况，正常延迟交给播放器自己维持。
-const LIVE_LAG_LIMIT = 30;
+const LIVE_LAG_LIMIT = 60;
 
 /** 直播点：取 seekable/buffered 最后一个区间的末尾 */
 function liveEdgeOf(video) {
@@ -1546,7 +1546,13 @@ function playStream(stream) {
         // 桌面端直接在主线程 demux（1080p 直播足够用）
         enableWorker: !IS_DESKTOP,
         lowLatencyMode: false,
-        liveSyncDurationCount: 3,
+        // 直播以「不卡」为第一优先，延迟稳定即可：留 5 个分片的缓冲（约 15-20s），
+        // 网络抖一下也不会把 buffer 吃干净。原来的 3 个分片贴着边缘播，一波动就顿。
+        liveSyncDurationCount: 5,
+        // 允许延迟在 5~12 个分片之间浮动，别因为稍微落后就强行跳回直播点
+        liveMaxLatencyDurationCount: 12,
+        maxBufferLength: 30,
+        maxMaxBufferLength: 60,
       });
       player.hls = hls;
       hls.loadSource(stream.url);
@@ -1568,6 +1574,8 @@ function playStream(stream) {
     }
   } else if (stream.type === 'flv' && window.mpegts && mpegts.isSupported()) {
     const flv = mpegts.createPlayer({ type: 'flv', isLive: true, url: stream.url }, {
+      // 注：mpegts 的 worker 在 Electron 渲染进程里同样建不起来（实测直接起播失败），
+      // demux 只能留在主线程，所以高码率流的性能上限要靠在清晰度上让一步
       // 直播场景关掉 stash，避免延迟越积越大；追帧阈值给宽一点，
       // 否则 mpegts 会在 buffer 边界反复 seek，追着追着把自己卡在 paused
       enableStashBuffer: false,
@@ -1575,11 +1583,11 @@ function playStream(stream) {
       lazyLoad: false,
       autoCleanupSourceBuffer: true,
       liveBufferLatencyChasing: true,
-      // 之前 maxLatency 2.5 / minRemain 0.6 会把延迟压到零点几秒，
-      // 缓冲薄得没有抗抖动余量，网络稍微一抖画面就顿一下。
-      // 放宽到 4.5 / 2.0：延迟换来 2~4 秒缓冲，观感稳定得多（实测帧率 50.9 → 59+）
-      liveBufferLatencyMaxLatency: 4.5,
-      liveBufferLatencyMinRemain: 2.0,
+      // 直接关掉 mpegts 自带的追帧：实测它不管把 maxLatency/minRemain 配成多少，
+      // 都会把延迟压到 0~3 秒，缓冲薄得没有抗抖动空间，网络一抖就顿。
+      // 直播第一优先是「不卡」，延迟稳定即可 —— 交给缓冲自然增长，
+      // 只有真的跑偏（落后直播点 60 秒）才由看门狗兜一次。
+      liveBufferLatencyChasing: false,
     });
     player.flv = flv;
     flv.attachMediaElement(video);
