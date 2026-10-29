@@ -46,6 +46,11 @@ const player = {
   lastTime: null,
   // 连续拿到「短分片」的次数，连续多次就退回官方页
   shortStreams: 0,
+  // 连续超阈值的次数，攒够几次才追帧
+  lagHits: 0,
+  // 拆流/重连期间忽略错误事件，否则会形成重连死循环
+  clearing: false,
+  reconnecting: false,
   // 用来区分「分片流结束」和「HLS 时长正常增长」
   lastDuration: -1,
   durationStableAt: 0,
@@ -395,6 +400,11 @@ function scheduleOfflineRetry(room) {
 
 function clearPlayerEngine() {
   const video = $('#watchVideo');
+  // 拆流时 removeAttribute('src') + load() 必然触发一次 error 事件，
+  // 这不是播放故障。不挡住它，error 回调会立刻触发重连，
+  // 重连又拆流又触发 error —— 每 2.5 秒转一圈，直播根本没法看。
+  player.clearing = true;
+  setTimeout(() => { player.clearing = false; }, 400);
   stopPlayWatchdog();
   if (player.hls) {
     player.hls.destroy();
@@ -1371,10 +1381,11 @@ async function changeQuality(quality) {
  * 2. 虎牙已把 FLV 端点改成「一次性切片」——duration 是个有限值，播完就停，
  *    这种情况反复 play() 没有意义，改成说明原因并切到内嵌平台官方页。
  */
-// 直播位置落后直播点超过这个值就主动追回去。
-// mpegts 自带的 liveBufferLatencyChasing 在部分流上不生效（实测虎牙会累积到上百秒），
-// 这里做一个不依赖播放器实现的兜底。
-const LIVE_LAG_LIMIT = 8;
+// 直播位置落后直播点的容忍值。
+// 注意 HLS 直播的 buffer 本来就领先播放点十几秒（hls.js liveSyncDurationCount=3），
+// 阈值设在个位数会导致每轮采样都 seek 一次，画面几秒一卡。
+// 这里只兜「真的跑偏了」的情况，正常延迟交给播放器自己维持。
+const LIVE_LAG_LIMIT = 30;
 
 /** 直播点：取 seekable/buffered 最后一个区间的末尾 */
 function liveEdgeOf(video) {
@@ -1421,7 +1432,7 @@ function startPlayWatchdog() {
 
     // 播放位置倒退（流被重新加载 / buffer 被清掉后回到旧位置）：直接拉回直播点。
     // 这是「看了几分钟突然退回几分钟前」的那个症状，不管上游怎么变，位置不能往回走。
-    if (player.lastTime !== null && video.currentTime < player.lastTime - 5 && video.currentTime < edge - 5) {
+    if (player.lastTime !== null && video.currentTime < player.lastTime - 10 && video.currentTime < edge - 10) {
       console.warn('[player] 播放位置倒退', player.lastTime.toFixed(1), '→', video.currentTime.toFixed(1));
       if (Number.isFinite(duration) && duration > 0) {
         // 分片流从头重播：seek 回切片末尾没有意义（那里没新数据了），只能重新取流
@@ -1434,9 +1445,18 @@ function startPlayWatchdog() {
       return;
     }
 
-    // 缓冲越积越多（延迟持续增大）：追到直播点附近，别让延迟无限累积
+    // 缓冲越积越多（延迟持续增大）：连续几轮都超阈值才追，避免网络抖动时误跳。
+    // 落点留 3 秒余量，直接跳 buffer 最末端会落在未缓冲区，反而卡一下。
     if (edge - video.currentTime > LIVE_LAG_LIMIT) {
-      video.currentTime = Math.max(0, edge - 0.5);
+      player.lagHits = (player.lagHits || 0) + 1;
+      if (player.lagHits >= 3) {
+        player.lagHits = 0;
+        video.currentTime = Math.max(0, edge - 3);
+        player.lastTime = video.currentTime;
+        return;
+      }
+    } else {
+      player.lagHits = 0;
     }
     player.lastTime = video.currentTime;
   }, 2500);
@@ -1453,8 +1473,12 @@ let lastReconnectAt = 0;
 async function reconnectLiveStream(reason) {
   const room = state.currentRoom;
   if (!room) return;
+  if (player.reconnecting) return;
   if (Date.now() - lastReconnectAt < 2500) return;
   lastReconnectAt = Date.now();
+  player.reconnecting = true;
+  // 留出重连 + 起播的时间窗，期间的错误事件不再触发新一轮重连
+  setTimeout(() => { player.reconnecting = false; }, 8000);
 
   player.shortStreams = (player.shortStreams || 0) + 1;
   // 连续几次都只给很短的片段，说明这条线路质量不行，退回官方页
@@ -1530,6 +1554,7 @@ function playStream(stream) {
       hls.on(Hls.Events.MANIFEST_PARSED, ready);
       hls.on(Hls.Events.ERROR, (_event, data) => {
         if (!data?.fatal) return void console.warn('[hls]', data?.details, data?.reason || '');
+        if (player.clearing || player.reconnecting) return;
         // 抖音这类流的地址有效期有限，播久了会 manifest/分片失败；
         // 直接重新解析取一份新地址，比让用户手动点「重连」强
         console.warn('[hls] 致命错误，尝试自动重连:', data?.details);
@@ -2076,7 +2101,10 @@ async function init() {
   }
   // FLV/HLS 之外的底层错误（地址过期、连接被掐）也走同一条自愈路径
   $('#watchVideo').addEventListener('error', () => {
-    if (state.currentRoom) reconnectLiveStream('播放出错，正在自动重连…');
+    if (!state.currentRoom) return;
+    // 拆流/重连过程中的 error 是自找的，不能反过来再触发重连
+    if (player.clearing || player.reconnecting) return;
+    reconnectLiveStream('播放出错，正在自动重连…');
   });
   // 播放器尺寸是按「可用区域 + 视频比例」算出来的，窗口一变就得重算
   window.addEventListener('resize', syncPlayerAspect);
