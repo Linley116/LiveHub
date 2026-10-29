@@ -39,7 +39,11 @@ function withProxy(data, platform) {
     author: PLATFORMS[platform]?.name || platform,
     // 封面同样走代理：各平台图片 CDN 会校验 Referer，直连在浏览器里多半 403
     cover: data.cover ? proxyURL(platform, data.cover) : '',
-    streams: (data.streams || []).map((s) => ({ ...s, url: proxyURL(platform, s.url) })),
+    // r/n 让代理在断流时能自己重新解析一条新签名（CDN 的地址是一次性的）
+    streams: (data.streams || []).map((s) => ({
+      ...s,
+      url: proxyURL(platform, s.url, { room: data.roomId, name: s.name, q: s.rate ?? s.qn ?? s.bitRate ?? '' }),
+    })),
   };
 }
 
@@ -393,7 +397,10 @@ app.post('/api/diagnostics', async (req, res) => {
       const st = await fs.stat(file);
       if (st.size > 3 * 1024 * 1024) await fs.rename(file, file + '.1');
     } catch {}
-    const line = JSON.stringify({ at: new Date().toISOString(), netKBs, ...req.body }) + '\n';
+    // at 保持 UTC（便于程序处理），另存一份本机时间，避免人工看日志时把 UTC 当成北京时间
+    const now = new Date();
+    const localAt = now.toLocaleString('zh-CN', { hour12: false }).replace(/\//g, '-');
+    const line = JSON.stringify({ at: now.toISOString(), localAt, netKBs, ...req.body }) + '\n';
     await fs.appendFile(file, line);
     res.json({ ok: true });
   } catch (err) {
@@ -432,7 +439,26 @@ app.get('/api/resolve', async (req, res) => {
   }
 });
 
-app.get('/api/proxy', proxyHandler);
+/**
+ * 给流代理用：断流/换线时重新解析出一条新签名地址。
+ * 不走 resolveCached —— 要的就是绕过缓存拿新签名；画质也要跟当前那条一致，
+ * 否则换线后会悄悄掉档（虎牙 ratio=0 是原画，B站看 qn，斗鱼看 rate）。
+ */
+async function resolveFreshUrl(platform, roomId, streamName, quality) {
+  if (!PLATFORMS[platform]) return null;
+  const key = { huya: 'ratio', bilibili: 'qn', douyu: 'rate' }[platform];
+  const opts = {};
+  if (key && quality !== '' && quality !== undefined && Number.isFinite(Number(quality))) {
+    opts[key] = Number(quality);
+  }
+  const data = await resolveRoom(platform, roomId, opts);
+  const list = data.streams || [];
+  if (!list.length) return null;
+  const hit = streamName ? list.find((s) => s.name === streamName) : null;
+  return (hit || list[0]).url;
+}
+
+app.get('/api/proxy', (req, res) => proxyHandler(req, res, { resolveFresh: resolveFreshUrl }));
 
 app.use('/vendor/hls.js', express.static(path.join(ROOT, 'node_modules/hls.js/dist')));
 app.use('/vendor/mpegts.js', express.static(path.join(ROOT, 'node_modules/mpegts.js/dist')));

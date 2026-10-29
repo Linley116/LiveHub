@@ -1,6 +1,6 @@
 // 哔哩哔哩直播解析：官方 Web 接口。getInfoByRoom / playurl 有 -352 风控，
 // 需要先用 finger/spi 拿 buvid3 设备指纹，带 cookie 就不需要登录。
-import { CookieJar, getJSON } from '../lib/http.js';
+import { CookieJar, getJSON, UAS } from '../lib/http.js';
 import { applyAccount } from '../accounts.js';
 
 const QN_NAME = {
@@ -147,7 +147,7 @@ export async function resolve(roomId, opts = {}) {
     .sort((a, b) => b - a)
     .map((qn) => ({ id: String(qn), name: qnDesc.get(qn) || `${qn}P`, qn }));
 
-  result.streams = rankStreams(streams);
+  result.streams = await verifyNodes(rankStreams(streams));
   result.qualities = qualities;
   result.quality = String(currentQn);
   // 请求了更高的档位却被降级，说明该档位需要登录（B 站直播原画/蓝光账号门槛）
@@ -175,4 +175,46 @@ function rankStreams(list) {  const score = (s) => (s.codec === 'avc' ? 100 : 0)
     out.push(s);
   }
   return out.slice(0, 12);
+}
+
+/**
+ * 节点探测（借鉴 DTV 的「先验证再交付」）：B 站的 CDN 节点时不时有死的/半死的，
+ * 用户手动换线点进去就是黑屏。这里对排在前面的 FLV 节点并行发一次探测——
+ * 建连 + 读到第一块字节就算活，2.5s 超时。探测失败的挪到队尾（不删，
+ * 手动选择的自由保留），探测请求头和代理转发用的完全一致，避免误判。
+ */
+async function verifyNodes(streams) {
+  const flvList = streams.filter((s) => s.type === 'flv').slice(0, 6);
+  if (flvList.length < 2) return streams;   // 就一条没得挑，别多此一举
+  const results = await Promise.all(
+    flvList.map(async (s) => {
+      const ac = new AbortController();
+      const timer = setTimeout(() => ac.abort(), 2500);
+      try {
+        const res = await fetch(s.url, {
+          headers: {
+            'User-Agent': UAS.web,
+            Referer: 'https://live.bilibili.com/',
+            Origin: 'https://live.bilibili.com',
+            Accept: '*/*',
+          },
+          redirect: 'follow',
+          signal: ac.signal,
+        });
+        if (!res.ok || !res.body) return [s, false];
+        const reader = res.body.getReader();
+        const first = await reader.read();
+        try { await reader.cancel(); } catch {}
+        return [s, !first.done && !!first.value?.length];
+      } catch {
+        return [s, false];
+      } finally {
+        clearTimeout(timer);
+      }
+    }),
+  );
+  const dead = new Set(results.filter(([, ok]) => !ok).map(([s]) => s));
+  if (!dead.size) return streams;
+  console.error(`[bilibili] 节点探测：${dead.size}/${flvList.length} 个 FLV 节点无响应，已挪到队尾`);
+  return [...streams.filter((s) => !dead.has(s)), ...streams.filter((s) => dead.has(s))];
 }

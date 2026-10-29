@@ -1442,6 +1442,19 @@ function startPlayWatchdog() {
     const edge = liveEdgeOf(video);
     if (!edge) { player.lastTime = video.currentTime; return; }
 
+    // 连续 1 分钟健康播放就重置「短片段」计数（借鉴 simple_live 的做法）：
+    // 周期性断流恢复后不该被历史失败连坐——否则几次断流之后就被误判
+    // 「线路不行」退去官方页，但其实每次都恢复得好好的。
+    if (!video.paused && video.readyState >= 3) {
+      if (!player.healthySince) player.healthySince = Date.now();
+      else if (Date.now() - player.healthySince >= 60000 && player.shortStreams) {
+        player.shortStreams = 0;
+        console.info('[player] 播放已稳定 60s，重置重连失败计数');
+      }
+    } else {
+      player.healthySince = 0;
+    }
+
     // 播放位置倒退（流被重新加载 / buffer 被清掉后回到旧位置）：直接拉回直播点。
     // 这是「看了几分钟突然退回几分钟前」的那个症状，不管上游怎么变，位置不能往回走。
     if (player.lastTime !== null && video.currentTime < player.lastTime - 10 && video.currentTime < edge - 10) {
@@ -1698,6 +1711,38 @@ function onPlaybackStarved() {
   if (player.starveMarks.length < STARVE_LIMIT) return;
   player.starveMarks = [];
   degradeQuality();
+}
+
+/**
+ * 卡顿恢复后追回直播边缘：一次 freeze 会让播放点落后「平时的缓冲厚度」很多，
+ * 之后延迟就一直偏大。恢复播放 5 秒（让缓冲重新长出来）后检查一次，
+ * 若明显厚于平时的厚度，就一次性 seek 回平时的深度——是一次跳转，不是倍速。
+ * 只对 FLV 生效：HLS 引擎有 liveMaxLatency 自己管，且 buffer 天然领先十几秒。
+ */
+function onPlaybackRecovered() {
+  const video = $('#watchVideo');
+  if (!state.currentRoom || !video || video.seeking) return;
+  if (player.clearing || player.reconnecting || player.hls) return;
+  // 起播初期缓冲还在按 stash 目标积累，没有「平时厚度」可言
+  if (!player.diagRing || player.diagRing.length < 24) return;
+  const roomKey = state.currentRoom.key;
+  clearTimeout(player.recoverTimer);
+  player.recoverTimer = setTimeout(() => {
+    const v = $('#watchVideo');
+    if (!state.currentRoom || state.currentRoom.key !== roomKey || !v || v.seeking || v.paused) return;
+    if (player.clearing || player.reconnecting || player.hls) return;
+    const edge = liveEdgeOf(v);
+    if (!edge) return;
+    const depth = edge - v.currentTime;
+    const rows = player.diagRing.map((r) => r.depth).filter((d) => d > 0.3).sort((a, b) => a - b);
+    const base = rows.length ? rows[Math.floor(rows.length / 2)] : 0;
+    // 明显厚于平时（多出 5s 以上）才算真的落后了
+    if (depth < Math.max(10, base + 5)) return;
+    const target = Math.max(0, edge - Math.max(2, base));
+    console.info('[player] 卡顿恢复后追回直播边缘：落后', depth.toFixed(1), 's，平时', base.toFixed(1), 's');
+    v.currentTime = target;
+    player.lastTime = target;
+  }, 5000);
 }
 
 /** 降到下一档清晰度；已经在最低档就什么都不做 */
@@ -2382,6 +2427,8 @@ async function init() {
   // 网络供不上 → 播放器等数据（waiting）。偶尔一次不必管，
   // 短时间内反复出现说明这档码率超出当前网络能力，自动降一档保流畅
   $('#watchVideo').addEventListener('waiting', onPlaybackStarved);
+  // 恢复播放（playing）后检查有没有落后直播边缘太多，落后就追回来
+  $('#watchVideo').addEventListener('playing', onPlaybackRecovered);
   // 播放器尺寸是按「可用区域 + 视频比例」算出来的，窗口一变就得重算
   window.addEventListener('resize', syncPlayerAspect);
   setupPlayerBarAutoHide();
