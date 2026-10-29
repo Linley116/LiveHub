@@ -1,4 +1,5 @@
 // LiveHub 服务端：聚合四个平台的直播解析 + 流代理 + 关注列表存储
+import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import express from 'express';
@@ -337,6 +338,28 @@ app.patch('/api/rooms/:key', async (req, res) => {
   if (typeof req.body?.pinned === 'boolean') patch.pinned = req.body.pinned;
   const room = await updateRoom(req.params.key, patch);
   res.json(room || { error: '房间不存在' });
+});
+
+/**
+ * 卡顿取证：前端检测到画面停顿时，把前后 30 秒的播放状态发过来落盘。
+ * 只写本地文件、不上传，用于「用户说卡但开发环境复现不出来」时定位。
+ */
+app.post('/api/diagnostics', async (req, res) => {
+  try {
+    const dir = process.env.LIVEHUB_DATA_DIR || path.join(ROOT, 'data');
+    await fs.mkdir(dir, { recursive: true });
+    const file = path.join(dir, 'diagnostics.jsonl');
+    // 超过 3MB 就滚一份，避免无限增长
+    try {
+      const st = await fs.stat(file);
+      if (st.size > 3 * 1024 * 1024) await fs.rename(file, file + '.1');
+    } catch {}
+    const line = JSON.stringify({ at: new Date().toISOString(), ...req.body }) + '\n';
+    await fs.appendFile(file, line);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: String(err.message || err) });
+  }
 });
 
 app.get('/api/resolve', async (req, res) => {

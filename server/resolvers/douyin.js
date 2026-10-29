@@ -78,7 +78,9 @@ export async function resolve(roomId, opts = {}) {
 
   let res = await fetchEnter(rid);
   if (!res) {
-    // 十有八九是 ttwid 过期或被风控拦了一次：重握手再试一遍，能自愈绝大多数偶发失败
+    // 十有八九是 ttwid 过期或被风控拦了一次：重握手再试一遍，能自愈绝大多数偶发失败。
+    // 重试前稍等一下：连续快速重握手反而容易把风控彻底触发（实测连打十几次会被锁）。
+    await new Promise((r) => setTimeout(r, 700 + Math.random() * 600));
     await ensureSession(rid, { force: true });
     applyAccount('douyin', jar);
     res = await fetchEnter(rid);

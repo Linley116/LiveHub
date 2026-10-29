@@ -431,6 +431,8 @@ function stopWatchRoom() {
   player.requestId += 1;
   clearOfflineTimer();
   stopDanmaku();
+  stopBufferController();
+  stopStallProbe();
   destroyPlatformPage();
   clearPlayerEngine();
   player.streams = [];
@@ -553,6 +555,8 @@ async function enterWatchRoom(room) {
   player.shortStreams = 0;
   player.starveMarks = [];
   player.degrading = false;
+  player.diagSentAt = 0;
+  player.diagCount = 0;
   player.lastDuration = -1;
   player.durationStableAt = 0;
   await loadRoomPrefs();
@@ -563,6 +567,8 @@ async function enterWatchRoom(room) {
   document.querySelector('.catalog').scrollTop = 0;
   $('#watchPage').scrollTop = 0;
   startDanmaku(room);
+  startBufferController();
+  startStallProbe();
   loadWatchRoom(room);
 }
 
@@ -1470,6 +1476,130 @@ function startPlayWatchdog() {
 // 重连节流：分片流会周期性结束，别让重连本身变成风暴
 let lastReconnectAt = 0;
 
+// ---- 目标缓冲控制 ----
+// 成熟播放器（YouTube / Twitch / B 站）都靠微调 playbackRate 把缓冲压在目标区间：
+// 缓冲薄了就放慢一点点，让下载把缓冲补回来；厚了就加快一点点追回延迟。
+// mpegts 自带的 liveSync 只会加速追延迟，不会放慢攒缓冲，所以这里自己做一个。
+// 用户已明确「延迟稳定即可、不能卡」，多 1~3 秒延迟换抗抖动余量是划算的。
+const BUF_LOW = 2.0;     // 低于此值开始放慢攒缓冲
+const BUF_TARGET = 4.5;  // 攒到这个值恢复正常速度
+const BUF_HIGH = 8.0;    // 超过此值轻微加速，避免延迟无限增长
+const RATE_SLOW = 0.94;
+const RATE_FAST = 1.04;
+
+let bufferTimer;
+function startBufferController() {
+  stopBufferController();
+  bufferTimer = setInterval(tunePlaybackRate, 1000);
+}
+function stopBufferController() {
+  clearInterval(bufferTimer);
+  bufferTimer = null;
+  const video = $('#watchVideo');
+  if (video && video.playbackRate !== 1) video.playbackRate = 1;
+}
+
+function tunePlaybackRate() {
+  const video = $('#watchVideo');
+  if (!video || !state.currentRoom) return;
+  if (video.paused || video.ended || video.seeking) {
+    if (video.playbackRate !== 1) video.playbackRate = 1;
+    return;
+  }
+  const ranges = video.buffered;
+  if (!ranges || !ranges.length) return;
+  const depth = ranges.end(ranges.length - 1) - video.currentTime;
+  if (!Number.isFinite(depth) || depth <= 0) return;
+
+  const rate = video.playbackRate;
+  if (depth < BUF_LOW && rate > RATE_SLOW) {
+    video.playbackRate = RATE_SLOW;          // 攒缓冲
+  } else if (depth >= BUF_TARGET && rate < 1) {
+    video.playbackRate = 1;                  // 攒够了恢复正常
+  } else if (depth > BUF_HIGH && rate <= 1) {
+    video.playbackRate = RATE_FAST;          // 落后太多，轻轻追一下
+  } else if (depth < BUF_TARGET + 1 && rate > 1) {
+    video.playbackRate = 1;
+  }
+}
+
+// ---- 卡顿取证 ----
+// 开发机上复现不出来的卡顿，靠现场数据定位。每秒记一条，检测到画面停住 ≥2 秒
+// 就把前后 30 秒的状态发到本地服务落盘（只写文件、不上传）。
+// 落盘位置：app 的 userData/data/diagnostics.jsonl
+let diagTimer;
+function startStallProbe() {
+  stopStallProbe();
+  player.diagRing = [];
+  player.frozenSince = 0;
+  diagTimer = setInterval(samplePlayback, 1000);
+}
+
+function stopStallProbe() {
+  clearInterval(diagTimer);
+  diagTimer = null;
+  player.diagRing = [];
+  player.frozenSince = 0;
+}
+
+function samplePlayback() {
+  const video = $('#watchVideo');
+  if (!video || !state.currentRoom) return;
+  const ranges = video.buffered;
+  const edge = ranges && ranges.length ? ranges.end(ranges.length - 1) : 0;
+  const depth = edge - video.currentTime;
+  const quality = video.getVideoPlaybackQuality ? video.getVideoPlaybackQuality() : {};
+  const row = {
+    t: +video.currentTime.toFixed(2),
+    depth: +depth.toFixed(2),
+    rate: video.playbackRate,
+    rs: video.readyState,
+    drop: quality.droppedVideoFrames || 0,
+  };
+
+  const prev = player.diagRing[player.diagRing.length - 1];
+  player.diagRing.push(row);
+  if (player.diagRing.length > 36) player.diagRing.shift();
+
+  const now = Date.now();
+  // 播放头不动 = 画面停住（暂停是正常的，不算）
+  if (!video.paused && prev && Math.abs(row.t - prev.t) < 0.3) {
+    if (!player.frozenSince) player.frozenSince = now;
+    if (now - player.frozenSince >= 2000 && now - (player.diagSentAt || 0) > 30_000 && (player.diagCount || 0) < 12) {
+      player.diagSentAt = now;
+      player.diagCount = (player.diagCount || 0) + 1;
+      reportStall(now - player.frozenSince);
+    }
+  } else {
+    player.frozenSince = 0;
+  }
+}
+
+/** 把现场状态报给本地服务，便于离线分析 */
+function reportStall(frozeMs) {
+  const room = state.currentRoom;
+  if (!room) return;
+  const video = $('#watchVideo');
+  const ranges = video.buffered;
+  const payload = {
+    platform: room.platform,
+    roomId: room.roomId,
+    quality: player.qualities?.find((q) => String(q.id) === String(player.quality))?.name || player.quality,
+    line: player.streams?.[player.line]?.name || '',
+    engine: player.flv ? 'flv' : player.hls ? 'hls' : 'none',
+    frozeMs,
+    video: { w: video.videoWidth, h: video.videoHeight, dpr: devicePixelRatio, win: `${innerWidth}x${innerHeight}` },
+    bufferEnd: ranges && ranges.length ? +ranges.end(ranges.length - 1).toFixed(2) : 0,
+    stats: player.flv?.statisticsInfo || null,
+    sample: player.diagRing.slice(-30),
+  };
+  fetch('/api/diagnostics', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  }).catch(() => {});
+}
+
 // ---- 自动降档：卡顿优先于画质 ----
 // 45 秒内出现 3 次「等数据」就认为这档码率超出网络能力，自动降一档。
 // 用户的原则是「第一优先不卡」，所以不加确认，直接降并提示一次。
@@ -1504,7 +1634,10 @@ function degradeQuality() {
   const next = list[idx + 1];
   player.degrading = true;
   showQualityHint(`网络跟不上，已自动切到「${next.name}」以保证不卡顿`);
-  Promise.resolve(changeQuality(next.id)).finally(() => {
+  // 临时降档：不写偏好、不改用户设置，下次进来还是他自己选的清晰度
+  player.quality = next.id;
+  renderQualityControls();
+  Promise.resolve(loadWatchRoom(room, { quality: next.id })).finally(() => {
     // 给新档位一段稳定期，避免网络抖动时一路降到最低
     setTimeout(() => { player.degrading = false; }, 20_000);
   });
