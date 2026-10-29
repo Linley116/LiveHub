@@ -555,8 +555,9 @@ async function enterWatchRoom(room) {
   player.shortStreams = 0;
   player.starveMarks = [];
   player.degrading = false;
-  player.diagSentAt = 0;
+  player.diagLastAt = {};
   player.diagCount = 0;
+  player.diagBufferLow = 99;
   player.lastDuration = -1;
   player.durationStableAt = 0;
   await loadRoomPrefs();
@@ -1524,22 +1525,36 @@ function tunePlaybackRate() {
 }
 
 // ---- 卡顿取证 ----
-// 开发机上复现不出来的卡顿，靠现场数据定位。每秒记一条，检测到画面停住 ≥2 秒
-// 就把前后 30 秒的状态发到本地服务落盘（只写文件、不上传）。
-// 落盘位置：app 的 userData/data/diagnostics.jsonl
+// 开发机上复现不出来的卡顿，靠现场数据定位。
+// 每 0.5 秒采一次播放状态；画面停住 ≥0.8 秒、或播放器等数据（waiting）、
+// 或缓冲快见底，就把前后 30 秒的状态发到本地服务落盘。
+// 只写本地文件、不上传：userData/data/diagnostics.jsonl
+const DIAG_SAMPLE_MS = 500;
+const DIAG_FREEZE_MS = 800;
+const DIAG_MAX = 60;          // 单次观看最多记这么多条，防刷
+
 let diagTimer;
+let diagPeriodic;
 function startStallProbe() {
   stopStallProbe();
   player.diagRing = [];
-  player.frozenSince = 0;
-  diagTimer = setInterval(samplePlayback, 1000);
+  player.diagFrozenSince = 0;
+  player.diagLastAt = {};
+  player.diagCount = 0;
+  player.diagBufferLow = 99;
+  diagTimer = setInterval(samplePlayback, DIAG_SAMPLE_MS);
+  // 每 60 秒记一条「一切正常」的快照：万一用户说卡但我们没抓到事件，
+  // 也能从这些快照看出缓冲是一直很薄还是偶发见底
+  diagPeriodic = setInterval(() => reportEvent('periodic'), 60_000);
 }
 
 function stopStallProbe() {
   clearInterval(diagTimer);
+  clearInterval(diagPeriodic);
   diagTimer = null;
+  diagPeriodic = null;
   player.diagRing = [];
-  player.frozenSince = 0;
+  player.diagFrozenSince = 0;
 }
 
 function samplePlayback() {
@@ -1559,38 +1574,58 @@ function samplePlayback() {
 
   const prev = player.diagRing[player.diagRing.length - 1];
   player.diagRing.push(row);
-  if (player.diagRing.length > 36) player.diagRing.shift();
+  if (player.diagRing.length > 60) player.diagRing.shift();   // 30 秒窗口
+  if (depth >= 0 && depth < player.diagBufferLow) player.diagBufferLow = +depth.toFixed(2);
+  if (depth > 3) player.diagBufferLow = 99;                   // 恢复了就重置
 
   const now = Date.now();
-  // 播放头不动 = 画面停住（暂停是正常的，不算）
-  if (!video.paused && prev && Math.abs(row.t - prev.t) < 0.3) {
-    if (!player.frozenSince) player.frozenSince = now;
-    if (now - player.frozenSince >= 2000 && now - (player.diagSentAt || 0) > 30_000 && (player.diagCount || 0) < 12) {
-      player.diagSentAt = now;
-      player.diagCount = (player.diagCount || 0) + 1;
-      reportStall(now - player.frozenSince);
+  // 播放头不动 = 画面停住（暂停不算）
+  if (!video.paused && prev && Math.abs(row.t - prev.t) < 0.2) {
+    if (!player.diagFrozenSince) player.diagFrozenSince = now;
+    const frozen = now - player.diagFrozenSince;
+    if (frozen >= DIAG_FREEZE_MS) {
+      reportEvent('freeze', { frozeMs: frozen });
+      player.diagFrozenSince = 0;   // 记一次就重置，避免停 5 秒记 10 条
     }
   } else {
-    player.frozenSince = 0;
+    player.diagFrozenSince = 0;
   }
 }
 
 /** 把现场状态报给本地服务，便于离线分析 */
-function reportStall(frozeMs) {
+function reportEvent(kind, extra = {}) {
   const room = state.currentRoom;
-  if (!room) return;
   const video = $('#watchVideo');
+  if (!room || !video) return;
+  // 起播瞬间必然有一次 waiting（缓冲还在建），那是正常的，不算卡顿
+  if (kind === 'waiting' && video.currentTime < 3) return;
+  const now = Date.now();
+  // 同类型事件 4 秒内只记一条，防止抖动期刷屏
+  const gap = kind === 'periodic' ? 30_000 : 4000;
+  if (now - (player.diagLastAt?.[kind] || 0) < gap) return;
+  if ((player.diagCount || 0) >= DIAG_MAX) return;
+  player.diagLastAt = player.diagLastAt || {};
+  player.diagLastAt[kind] = now;
+  player.diagCount = (player.diagCount || 0) + 1;
+
   const ranges = video.buffered;
+  const depth = ranges && ranges.length ? ranges.end(ranges.length - 1) - video.currentTime : 0;
+  const quality = video.getVideoPlaybackQuality ? video.getVideoPlaybackQuality() : {};
   const payload = {
+    kind,
     platform: room.platform,
     roomId: room.roomId,
     quality: player.qualities?.find((q) => String(q.id) === String(player.quality))?.name || player.quality,
     line: player.streams?.[player.line]?.name || '',
     engine: player.flv ? 'flv' : player.hls ? 'hls' : 'none',
-    frozeMs,
+    depth: +depth.toFixed(2),
+    bufferLow: player.diagBufferLow === 99 ? null : player.diagBufferLow,
+    rate: video.playbackRate,
+    paused: video.paused,
+    dropped: quality.droppedVideoFrames || 0,
     video: { w: video.videoWidth, h: video.videoHeight, dpr: devicePixelRatio, win: `${innerWidth}x${innerHeight}` },
-    bufferEnd: ranges && ranges.length ? +ranges.end(ranges.length - 1).toFixed(2) : 0,
-    stats: player.flv?.statisticsInfo || null,
+    speed: player.flv?.statisticsInfo?.speed ?? null,
+    ...extra,
     sample: player.diagRing.slice(-30),
   };
   fetch('/api/diagnostics', {
@@ -1609,6 +1644,7 @@ const STARVE_LIMIT = 3;
 function onPlaybackStarved() {
   const video = $('#watchVideo');
   if (!state.currentRoom || !video) return;
+  reportEvent('waiting');
   // 刚起播/切档时的 waiting 属正常，播放头还没走起来就不算
   if (video.currentTime < 5) return;
   if (player.clearing || player.reconnecting || player.degrading) return;
