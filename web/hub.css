@@ -116,14 +116,14 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .catalog { min-width: 0; min-height: 0; overflow-y: auto; padding: 38px clamp(24px, 4vw, 64px) 50px; background: radial-gradient(ellipse at 78% -12%, rgba(181,237,134,.055), transparent 34%), #101216; scrollbar-width: thin; scrollbar-color: #343740 transparent; }
 .catalog-header { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; max-width: 1440px; margin: 0 auto 26px; }
 .eyebrow { color: var(--accent); font-size: var(--fs-xs); font-weight: 700; letter-spacing: .5px; }
-.catalog h1 { margin: 6px 0 3px; font-size: clamp(25px, 2.5vw, 34px); line-height: 1.15; font-weight: 680; letter-spacing: -.6px; }
+.catalog h1 { margin: 6px 0 3px; font-size: var(--fs-xl); line-height: 1.25; font-weight: 640; letter-spacing: -.2px; }
 .catalog-title-wrap p { margin: 8px 0 0; color: var(--text-dim); font-size: var(--fs-sm); }
 .header-note { flex: none; display: flex; align-items: center; gap: 8px; margin-bottom: 4px; color: var(--text-dim); font-size: var(--fs-sm); }
 .native-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 11px rgba(168,240,108,.5); }
 
 .catalog-tools { max-width: 1440px; display: flex; align-items: center; gap: 11px; margin: 0 auto 21px; padding-bottom: 15px; border-bottom: 1px solid var(--line); }
 .platform-filters { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; gap: 6px; }
-.filter-chip { height: 34px; display: inline-flex; align-items: center; gap: 7px; padding: 0 11px; border: 1px solid var(--line); border-radius: var(--r-sm); color: var(--text-dim); background: var(--surface); font-size: var(--fs-sm); white-space: nowrap; transition: all .15s; }
+.filter-chip { height: 34px; display: inline-flex; align-items: center; gap: 7px; padding: 0 11px; border: 1px solid var(--line); border-radius: var(--r-sm); color: var(--text-dim); background: var(--surface); font-size: var(--fs-sm); white-space: nowrap; transition: all var(--ease); }
 .filter-chip:hover { color: var(--text); border-color: var(--line); }
 .filter-chip.is-selected { color: var(--accent); border-color: rgba(181,237,134,.32); background: rgba(181,237,134,.085); }
 .filter-chip i { width: 6px; height: 6px; border-radius: 50%; background: var(--platform-color); }
@@ -144,8 +144,8 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .header-note.is-stale .native-dot { background: color-mix(in srgb, var(--warn) 10%, transparent); box-shadow: 0 0 11px rgba(232,187,87,.45); }
 
 .room-grid { max-width: 1440px; display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 198px), 1fr)); gap: 14px; margin: 0 auto; align-content: start; }
-.room-card { min-width: 0; position: relative; border: 1px solid var(--line); border-radius: var(--r-md); overflow: hidden; background: var(--surface); transition: transform .2s ease, border-color .2s ease, box-shadow .2s ease; }
-.room-card:hover { transform: translateY(-2px); border-color: var(--line); box-shadow: 0 18px 42px -28px rgba(0,0,0,.9); }
+.room-card { min-width: 0; position: relative; border: 1px solid var(--line); border-radius: var(--r-md); overflow: hidden; background: var(--surface); transition: border-color var(--ease), box-shadow var(--ease); }
+.room-card:hover { border-color: var(--line-strong); box-shadow: 0 16px 38px -26px rgba(0,0,0,.85); }
 /* 拉伸链接：透明层铺满整卡负责点击跳转，删除按钮等其他交互元素浮在其上 */
 .room-card-link { position: absolute; inset: 0; z-index: 1; }
 .room-cover { position: relative; aspect-ratio: 16 / 8; overflow: hidden; background: var(--surface); }
@@ -183,7 +183,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .room-card:hover .remove-room, .remove-room:focus-visible { opacity: 1; }
 .remove-room:hover { color: var(--text); background: color-mix(in srgb, var(--danger) 12%, transparent); }
 /* 直播标题在下一行，弱化为次要信息 */
-.room-card-title { margin-top: 3px; overflow: hidden; color: var(--text-dim); font-size: var(--fs-xs); text-overflow: ellipsis; white-space: nowrap; }
+.room-card-title { margin-top: 2px; overflow: hidden; color: var(--text-faint); font-size: var(--fs-xs); font-weight: 400; text-overflow: ellipsis; white-space: nowrap; }
 
 .catalog-empty { max-width: 550px; display: grid; justify-items: center; margin: 12vh auto 0; padding: 24px; text-align: center; }
 .catalog-empty[hidden] { display: none; }
@@ -279,7 +279,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 /* 真实头像盖在首字母之上，裂图时 img 自删，露出底下的 fallback */
 .watch-avatar-img { position: absolute; inset: 0; z-index: 1; width: 100%; height: 100%; object-fit: cover; border-radius: inherit; }
 .watch-room-copy { min-width: 0; }
-.watch-room-copy h1 { max-width: min(72vw, 800px); overflow: hidden; margin: 0; color: var(--text); font-size: clamp(17px, 2vw, 22px); line-height: 1.35; font-weight: 640; text-overflow: ellipsis; white-space: nowrap; }
+.watch-room-copy h1 { max-width: min(72vw, 800px); overflow: hidden; margin: 0; color: var(--text); font-size: var(--fs-lg); line-height: 1.35; font-weight: 620; text-overflow: ellipsis; white-space: nowrap; }
 .watch-room-copy p { margin: 4px 0 0; color: var(--text-dim); font-size: var(--fs-sm); }
 .watch-category { margin-left: auto; color: var(--text-dim); font-size: var(--fs-sm); }
 /* 窄屏放不下时按重要性依次收起：房间号最先让位 */
@@ -291,6 +291,23 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
  * 这样播放器和弹幕列严格等高平齐，多出来的空间留在下方而不是塞进容器里。
  * 弹幕列给一个随窗口缩放的固定宽度，宽度不够时优先让弹幕让路。
  */
+/* 竖屏直播时右侧补一栏：视频本身很窄，两侧空白正好放主播信息与弹幕 */
+.watch-layout.is-portrait { grid-template-columns: minmax(0, 1fr) 320px; }
+.watch-side { min-width: 0; display: flex; flex-direction: column; overflow: hidden; border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--surface); }
+.watch-side[hidden] { display: none; }
+.side-head { flex: none; display: flex; align-items: center; gap: 10px; padding: 14px; border-bottom: 1px solid var(--line); }
+.side-avatar { position: relative; flex: none; width: 38px; height: 38px; display: grid; place-items: center; overflow: hidden; border-radius: var(--r-md); background: color-mix(in srgb, var(--platform-color, #b5ed86) 14%, var(--surface-hi)); color: var(--platform-color, #b5ed86); font-size: var(--fs-md); font-weight: 700; }
+.side-avatar img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.side-copy { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.side-copy strong { overflow: hidden; color: var(--text); font-size: var(--fs-sm); font-weight: 620; text-overflow: ellipsis; white-space: nowrap; }
+.side-copy span { overflow: hidden; color: var(--text-faint); font-size: var(--fs-xs); text-overflow: ellipsis; white-space: nowrap; }
+.side-messages { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 7px; overflow-y: auto; padding: 12px 14px; scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent; }
+.side-empty { margin: auto; color: var(--text-faint); font-size: var(--fs-xs); text-align: center; }
+.side-dm { display: flex; gap: 6px; font-size: var(--fs-xs); line-height: 1.5; }
+.side-dm b { flex: none; max-width: 46%; overflow: hidden; color: var(--accent); font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.side-dm span { min-width: 0; color: var(--text-dim); overflow-wrap: anywhere; }
+.side-dm.is-self b { color: var(--live); }
+
 /* 弹幕不再单独占一列：整块空间都给播放器，弹幕飘在画面上、输入框做进播放器 */
 .watch-layout { flex: 1 1 auto; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr); }
 /* 播放器在可用空间里最大化并居中，具体宽高由 JS 按视频比例算（syncPlayerAspect） */
@@ -483,7 +500,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 /* 桌面端：LiveHub 播放器 / 平台官方页 切换 */
 .view-switch { margin-left: auto; margin-right: 16px; display: flex; gap: 2px; padding: 3px; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--surface); }
 .view-switch[hidden] { display: none; }
-.view-switch button { height: 30px; padding: 0 12px; border: 0; border-radius: var(--r-sm); color: var(--text-dim); background: transparent; font-size: var(--fs-xs); transition: all .15s; }
+.view-switch button { height: 30px; padding: 0 12px; border: 0; border-radius: var(--r-sm); color: var(--text-dim); background: transparent; font-size: var(--fs-xs); transition: all var(--ease); }
 .view-switch button:hover { color: var(--text); }
 .view-switch button.is-selected { color: #18220f; background: var(--accent); font-weight: 650; }
 
