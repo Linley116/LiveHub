@@ -22,6 +22,9 @@ const state = {
   refreshing: false,
   lastRefreshAt: 0,
   accounts: [],
+  theme: 'follow',   // follow | light | dark
+  rail: false,       // 侧栏折叠成 72px 头像轨
+  resizing: false,   // 侧栏折叠动画进行中
 };
 
 const player = {
@@ -204,7 +207,9 @@ function renderSidebar() {
     const primaryRoom = creator.live ? (creator.rooms.find((room) => room.live) || creator.rooms[0]) : creator.rooms[0];
     const title = roomName(primaryRoom) || (creator.live ? '直播中' : '未开播');
     const dot = `<span class="nav-dot ${creator.live ? 'is-on' : 'is-off'}" title="${creator.live ? '直播中' : '未开播'}" aria-label="${creator.live ? '直播中' : '未开播'}"></span>`;
-    return `<button class="creator-nav ${state.selectedCreator === creator.key ? 'is-selected' : ''} ${creator.live ? 'is-live' : ''}" data-creator="${escapeHTML(creator.key)}">
+    // 选中态：目录筛选命中，或正在看这位主播的直播间
+    const watchingThis = state.currentRoom && creatorKey(state.currentRoom) === creator.key;
+    return `<button class="creator-nav ${state.selectedCreator === creator.key || watchingThis ? 'is-selected' : ''} ${creator.live ? 'is-live' : ''}" data-creator="${escapeHTML(creator.key)}">
       <span class="creator-avatar" style="--platform-color:${p.color}">
         ${img}
         <span class="creator-avatar-fallback" aria-hidden="true">${escapeHTML(creator.name.slice(0, 1))}</span>
@@ -237,10 +242,208 @@ function renderSidebar() {
   $('#streamerList').innerHTML = parts.join('');
   $('#streamerList').querySelectorAll('[data-creator]').forEach((button) => {
     button.addEventListener('click', () => {
-      state.selectedCreator = button.dataset.creator;
+      const key = button.dataset.creator;
+      // 观看中点击侧栏：直接切到这位主播的房间，不用先退回目录再点卡片
+      if (!$('#watchPage').hidden) {
+        const target = pickCreatorRoom(key);
+        if (!target) {
+          // 「全部主播」或这位主播没有房间：回目录，并选中对应筛选
+          state.selectedCreator = key;
+          render();
+          location.hash = '#/';
+          return;
+        }
+        if (state.currentRoom?.key === target.key) return;   // 就是当前这个，别重连
+        location.hash = `#/room/${encodeURIComponent(target.key)}`;
+        return;
+      }
+      state.selectedCreator = key;
       render();
     });
+    // 折叠态：文字没了，靠气泡补名字和当前直播标题
+    button.addEventListener('mouseenter', () => showRailTip(button));
+    button.addEventListener('focus', () => showRailTip(button));
+    button.addEventListener('mouseleave', hideRailTip);
+    button.addEventListener('blur', hideRailTip);
   });
+}
+
+/** 侧栏切台用：同一位主播优先给正在直播的房间 */
+function pickCreatorRoom(key) {
+  if (!key || key === 'all') return null;
+  const rooms = state.rooms.filter((room) => creatorKey(room) === key);
+  return rooms.find((room) => room.live) || rooms[0] || null;
+}
+
+/* ---------------- 外观（跟随系统 / 日间 / 夜间）---------------- */
+
+const THEME_KEY = 'livehub:theme';
+const RAIL_KEY = 'livehub:rail';
+const themeQuery = window.matchMedia('(prefers-color-scheme: dark)');
+const THEME_NAME = { follow: '跟随系统', light: '日间', dark: '夜间' };
+const THEME_ICON = {
+  follow: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4.5" width="18" height="12" rx="2" /><path d="M9 20h6M12 16.5V20" /></svg>',
+  light: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4" /><path d="M12 2.8v2.1M12 19.1v2.1M2.8 12h2.1M19.1 12h2.1M5.6 5.6l1.5 1.5M16.9 16.9l1.5 1.5M18.4 5.6l-1.5 1.5M7.1 16.9l-1.5 1.5" /></svg>',
+  dark: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 14.5A8.5 8.5 0 1 1 9.5 4a6.8 6.8 0 0 0 10.5 10.5z" /></svg>',
+};
+
+function readStoredTheme() {
+  try {
+    const saved = localStorage.getItem(THEME_KEY);
+    if (saved === 'light' || saved === 'dark' || saved === 'follow') return saved;
+  } catch { /* 隐私模式下 localStorage 可能不可用 */ }
+  return 'follow';
+}
+
+/** 当前实际生效的主题（跟随系统时看系统偏好） */
+function resolvedTheme() {
+  if (state.theme === 'light' || state.theme === 'dark') return state.theme;
+  return themeQuery.matches ? 'dark' : 'light';
+}
+
+function applyTheme() {
+  const theme = resolvedTheme();
+  document.documentElement.dataset.theme = theme;
+  // 主进程同步窗口底色：拉伸窗口时露出的底色不能还是另一个主题的
+  window.livehub?.setTheme?.(theme);
+
+  const button = $('#themeBtn');
+  if (button) {
+    const icon = button.querySelector('.theme-ico');
+    if (icon) icon.innerHTML = THEME_ICON[state.theme];
+    const label = `外观：${THEME_NAME[state.theme]}`;
+    button.setAttribute('aria-label', label);
+    button.title = label;
+  }
+  const value = $('#themeValue');
+  if (value) value.textContent = THEME_NAME[state.theme];
+  $('#themeMenu')?.querySelectorAll('[data-theme-mode]').forEach((item) => {
+    const active = item.dataset.themeMode === state.theme;
+    item.setAttribute('aria-checked', String(active));
+    const key = item.querySelector('.k');
+    if (key) key.textContent = active ? '使用中' : '';
+  });
+}
+
+function setTheme(next) {
+  state.theme = next;
+  try { localStorage.setItem(THEME_KEY, next); } catch { /* 忽略 */ }
+  applyTheme();
+}
+
+function toggleThemeMenu(force) {
+  const menu = $('#themeMenu');
+  const button = $('#themeBtn');
+  if (!menu || !button) return;
+  const open = typeof force === 'boolean' ? force : menu.hidden;
+  menu.hidden = !open;
+  button.setAttribute('aria-expanded', String(open));
+}
+
+/* ---------------- 侧栏折叠 ---------------- */
+
+let railTimer;
+let restoreGridColumns = null;
+
+/**
+ * 算出「切换完成后」会有几列。
+ * 直接用 token 解析，不去临时套类量 DOM——那样会先把宽度改成目标值，
+ * 连续样式变更被浏览器合并，CSS 过渡根本不会启动（实测点下去就瞬移到位）。
+ * 公式与 CSS 的 auto-fill 一致：floor((可用宽 + 间距) / (最小列宽 + 间距))
+ */
+function targetColumns(rail) {
+  const grid = $('#roomGrid');
+  const catalog = $('#catalog');
+  if (!grid || !catalog || !grid.offsetWidth) return 0;   // 观看页里网格是隐藏的
+  const root = getComputedStyle(document.documentElement);
+  const railW = parseFloat(root.getPropertyValue(rail ? '--rail-w-rail' : '--rail-w')) || (rail ? 80 : 280);
+  const cardMin = parseFloat(root.getPropertyValue('--card-min')) || 198;
+  const gridStyle = getComputedStyle(grid);
+  const gap = parseFloat(gridStyle.columnGap) || 14;
+  const maxW = parseFloat(gridStyle.maxWidth) || Infinity;
+  const catalogStyle = getComputedStyle(catalog);
+  const padding = (parseFloat(catalogStyle.paddingLeft) || 0) + (parseFloat(catalogStyle.paddingRight) || 0);
+  const available = Math.min(window.innerWidth - railW - padding, maxW);
+  if (!available || available <= 0) return 0;
+  return Math.max(1, Math.floor((available + gap) / (cardMin + gap)));
+}
+
+function pinGridColumns(count) {
+  const grid = $('#roomGrid');
+  if (!grid || !count) return;
+  const previous = grid.style.gridTemplateColumns;
+  grid.style.gridTemplateColumns = `repeat(${count}, minmax(0, 1fr))`;
+  restoreGridColumns = () => { grid.style.gridTemplateColumns = previous; };
+}
+
+function applyRail() {
+  const shell = $('.hub-shell');
+  if (!shell) return;
+  const changed = shell.classList.contains('is-rail') !== state.rail;
+  const button = $('#railToggle');
+  if (!changed) {
+    if (button) {
+      const label = state.rail ? '展开侧栏' : '收起侧栏';
+      button.setAttribute('aria-label', label);
+      button.title = label;
+    }
+    if (!state.rail) hideRailTip();
+    return;
+  }
+
+  // 1) 先退毛玻璃 / 关命中（只重绘，不重排）
+  state.resizing = true;
+  shell.classList.add('is-resizing');
+
+  // 2) 同帧钉住目标列数，然后才开始过渡：动画过程中只变宽、不变列数
+  restoreGridColumns?.();
+  pinGridColumns(targetColumns(state.rail));
+  shell.classList.toggle('is-rail', state.rail);
+
+  if (button) {
+    const label = state.rail ? '展开侧栏' : '收起侧栏';
+    button.setAttribute('aria-label', label);
+    button.title = label;
+    button.innerHTML = state.rail
+      ? '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6" /></svg>'
+      : '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6l-6 6 6 6" /></svg>';
+  }
+
+  clearTimeout(railTimer);
+  railTimer = setTimeout(() => {
+    // 3) 再等一帧恢复毛玻璃，别让"重排"和"12 个角标重新模糊"撞在同一帧
+    requestAnimationFrame(() => {
+      state.resizing = false;
+      shell.classList.remove('is-resizing');
+      restoreGridColumns?.();     // 交还 auto-fill，此时列数已等于目标，不会跳
+      restoreGridColumns = null;
+      syncPlayerAspect();
+    });
+  }, 190);
+  if (!state.rail) hideRailTip();
+}
+
+function hideRailTip() {
+  const tip = $('#railTip');
+  if (tip) tip.hidden = true;
+}
+
+/** 折叠态下文字全没了，气泡是唯一能看全「谁、在播什么」的地方 */
+function showRailTip(button) {
+  if (!state.rail) return;
+  const tip = $('#railTip');
+  if (!tip) return;
+  const name = button.querySelector('.nav-name')?.textContent || '';
+  if (!name) return;
+  const title = button.querySelector('.nav-title')?.textContent || '';
+  tip.innerHTML = `<b>${escapeHTML(name)}</b>${title ? `<small>${escapeHTML(title)}</small>` : ''}`;
+  tip.hidden = false;
+  const roster = $('.roster');
+  if (!roster) return;
+  const base = roster.getBoundingClientRect();
+  const rect = button.getBoundingClientRect();
+  tip.style.left = `${roster.offsetWidth + 6}px`;
+  tip.style.top = `${Math.max(8, rect.top - base.top + rect.height / 2 - tip.offsetHeight / 2)}px`;
 }
 
 function renderPlatformFilters() {
@@ -310,7 +513,7 @@ function renderCard(room) {
       ${stateChip}
       ${audience}
       <span class="cover-play" aria-hidden="true">▶</span>
-      <span class="cover-offline" aria-hidden="true">未开播</span>
+      <span class="cover-offline" aria-hidden="true"><i>未开播</i></span>
     </div>
     <div class="room-card-body">
       <div class="room-card-head">
@@ -511,6 +714,9 @@ async function enterWatchRoom(room) {
   clearPlayerEngine();
   player.requestId += 1;
   state.currentRoom = room;
+  // 侧栏高亮跟着当前房间走。不动 state.selectedCreator——那是目录的筛选条件，
+  // 改了会让「返回目录」落在一个只剩该主播的列表里。
+  renderSidebar();
   $('#catalog').hidden = true;
   $('#watchPage').hidden = false;
   $('#watchLiveState').textContent = room.live ? '正在直播' : '准备进入';
@@ -1186,6 +1392,38 @@ function applyDanmakuStyle() {
   overlay.style.setProperty('--dm-size', `${danmakuStyle.fontSize}px`);
 }
 
+/**
+ * 滑杆填充：把当前值换算成百分比写进 --p，CSS 用它把轨道切成
+ * 「已选段（亮）」和「未选段（淡）」——不然看不出值占了多少。
+ */
+function paintRange(node) {
+  if (!node) return;
+  const min = Number(node.min) || 0;
+  const max = Number(node.max) || 100;
+  const value = Number(node.value);
+  const p = max > min ? ((value - min) / (max - min)) * 100 : 0;
+  node.style.setProperty('--p', `${Math.max(0, Math.min(100, p)).toFixed(2)}%`);
+}
+
+/**
+ * 滑杆交互：输入时同步填充；拖动/聚焦时给整行加状态类，
+ * 让右侧数值从灰变亮（操作有即时反馈）。
+ */
+function wireRange(node) {
+  if (!node) return;
+  paintRange(node);
+  const row = node.closest('.pop-row');
+  const on = () => { paintRange(node); row?.classList.add('is-dragging'); };
+  const off = () => row?.classList.remove('is-dragging');
+  node.addEventListener('input', on);
+  node.addEventListener('pointerdown', on);
+  node.addEventListener('pointerup', off);
+  node.addEventListener('pointercancel', off);
+  node.addEventListener('blur', off);
+  node.addEventListener('keydown', on);
+  node.addEventListener('keyup', off);
+}
+
 /** 把设置回写到面板控件上 */
 function syncDanmakuSettingsUI() {
   const setValue = (id, value) => {
@@ -1195,6 +1433,7 @@ function syncDanmakuSettingsUI() {
   setValue('#dmOpacity', danmakuStyle.opacity);
   setValue('#dmFontSize', danmakuStyle.fontSize);
   setValue('#dmSpeed', danmakuStyle.speed);
+  for (const id of ['#dmOpacity', '#dmFontSize', '#dmSpeed']) paintRange($(id));
   const texts = { '#dmOpacityVal': `${danmakuStyle.opacity}%`, '#dmFontSizeVal': `${danmakuStyle.fontSize}px`, '#dmSpeedVal': `${danmakuStyle.speed}` };
   for (const [id, text] of Object.entries(texts)) {
     const node = $(id);
@@ -2029,14 +2268,18 @@ function syncSoundUI() {
   $('#toggleSound').title = silent ? '开启声音' : '静音';
   $('#toggleSound').setAttribute('aria-label', silent ? '开启声音' : '静音');
   $('#volumeRange').value = String(video.muted ? 0 : video.volume);
+  paintRange($('#volumeRange'));
 }
 
-/** 清掉算出来的尺寸，回到 CSS 默认（换房间时用） */
+/** 清掉算出来的尺寸再立刻按当前可用空间铺一次（换房间时用） */
 function resetPlayerSize() {
   const stage = $('#watchPlayer');
   if (!stage) return;
   stage.style.width = '';
   stage.style.height = '';
+  // 只清不铺的话，.watch-player 会退回 CSS 的 width:100% + 16:9，
+  // 在宽窗口里就是一大块黑底，等元数据回来再缩，看起来就是「进房先黑一下」。
+  syncPlayerAspect();
 }
 
 /**
@@ -2051,10 +2294,11 @@ function syncPlayerAspect() {
   const stage = $('#watchPlayer');
   if (!stage || !video) return;
   const { videoWidth: w, videoHeight: h } = video;
-  if (!w || !h) return; // 还没拿到尺寸就保持 CSS 里的默认表现
+  // 元数据还没回来时先按 16:9 铺满可用空间：这样容器大小从一开始就是对的，
+  // 不会出现「先给一块 100% 宽的黑底、拿到尺寸再缩」的跳变。
   // 下限放到 0.5：抖音这类手机竖屏直播常见 9:16(0.56)，卡在 0.8 会左右各留 15% 黑边。
   // 高度已经由 min(可用宽/比例, 可用高) 兜住，竖屏不会顶出可视区，放心放开。
-  const ratio = Math.min(Math.max(w / h, 0.5), 2.8);
+  const ratio = w && h ? Math.min(Math.max(w / h, 0.5), 2.8) : 16 / 9;
   const column = stage.parentElement; // .player-column
   const availW = column?.clientWidth || stage.clientWidth;
   const availH = column?.clientHeight || 0;
@@ -2308,6 +2552,48 @@ async function addRoom(input) {
 
 async function init() {
   window.addEventListener('hashchange', handleRoute);
+
+  // ---- 外观与侧栏：先按存储恢复，再绑交互 ----
+  state.theme = readStoredTheme();
+  try { state.rail = localStorage.getItem(RAIL_KEY) === '1'; } catch { state.rail = false; }
+  applyTheme();
+  applyRail();
+  themeQuery.addEventListener('change', () => {
+    if (state.theme === 'follow') applyTheme();
+  });
+  $('#themeBtn').addEventListener('click', (event) => {
+    event.stopPropagation();
+    toggleThemeMenu();
+  });
+  $('#themeMenu').addEventListener('click', (event) => {
+    const item = event.target.closest('[data-theme-mode]');
+    if (!item) return;
+    setTheme(item.dataset.themeMode);
+    toggleThemeMenu(false);
+  });
+  document.addEventListener('click', (event) => {
+    if (!event.target.closest('#themeMenu') && !event.target.closest('#themeBtn')) toggleThemeMenu(false);
+  });
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') toggleThemeMenu(false);
+  });
+  $('#railToggle').addEventListener('click', () => {
+    state.rail = !state.rail;
+    try { localStorage.setItem(RAIL_KEY, state.rail ? '1' : '0'); } catch { /* 忽略 */ }
+    applyRail();
+  });
+  $('#streamerList').addEventListener('scroll', hideRailTip, { passive: true });
+  // 播放器容器尺寸变了就重新算播放器大小（侧栏折叠、窗口拉伸都会触发）
+  const playerColumn = $('.player-column');
+  if (playerColumn && typeof ResizeObserver === 'function') {
+    let raf = 0;
+    const observer = new ResizeObserver(() => {
+      if (state.resizing) return;              // 动画期间不逐帧校正，收尾统一算一次
+      if (raf) return;
+      raf = requestAnimationFrame(() => { raf = 0; syncPlayerAspect(); });
+    });
+    observer.observe(playerColumn);
+  }
   $('#addForm').addEventListener('submit', (event) => {
     event.preventDefault();
     const value = $('#addInput').value.trim();
@@ -2350,6 +2636,7 @@ async function init() {
   $('#dmOpacity').addEventListener('input', (event) => saveDanmakuStyle({ opacity: Number(event.target.value) }));
   $('#dmFontSize').addEventListener('input', (event) => saveDanmakuStyle({ fontSize: Number(event.target.value) }));
   $('#dmSpeed').addEventListener('input', (event) => saveDanmakuStyle({ speed: Number(event.target.value) }));
+  for (const id of ['#dmOpacity', '#dmFontSize', '#dmSpeed', '#volumeRange']) wireRange($(id));
   $('#dmArea').addEventListener('click', (event) => {
     const button = event.target.closest('[data-area]');
     if (!button) return;
@@ -2461,13 +2748,21 @@ async function init() {
     saveSoundPrefs();
   });
   $('#clearAll').addEventListener('click', async () => {
-    if (!state.rooms.length || !confirm(`确定清空全部 ${state.rooms.length} 个房间？`)) return;
+    const total = state.rooms.length;
+    if (!total) return;
+    // 和移除单个房间走同一个弹窗（原来用的是系统 confirm，样式完全不搭）
+    if (!(await confirmDialog({
+      title: '清空房间库',
+      text: `将从主播库移除全部 ${total} 个房间，之后需要重新导入才能找回。`,
+      confirmText: '清空',
+    }))) return;
     try {
       await Promise.all(state.rooms.map((room) => api(`/api/rooms/${encodeURIComponent(room.key)}`, { method: 'DELETE' })));
       state.rooms = [];
       state.selectedCreator = 'all';
       state.platform = 'all';
       render();
+      toast('已清空房间库');
     } catch (error) {
       toast(error.message);
     }

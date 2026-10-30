@@ -377,6 +377,11 @@ function registerIpc() {
   );
   ipcMain.handle('livehub:logout', (_event, platform) => logout(String(platform)));
   ipcMain.handle('livehub:sync-account', (_event, platform) => syncAccount(String(platform)));
+  // 主题切换后同步窗口底色：拉伸窗口时露出的底色不能还是另一个主题的
+  ipcMain.on('livehub:theme', (_event, theme) => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    mainWindow.setBackgroundColor(theme === 'light' ? '#f1f2f5' : '#0f1115');
+  });
   shadow.registerShadowIpc();
   sender.registerSenderIpc();
 }
@@ -387,9 +392,15 @@ async function createWindow(port) {
     height: 940,
     minWidth: 1120,
     minHeight: 720,
-    backgroundColor: '#101216',
+    backgroundColor: '#0f1115',
     title: 'LiveHub',
     show: false,
+    // 接管标题栏：系统的浅灰标题条和页面近黑底色永远是两截，
+    // 看起来像「外面套了个壳」。改成隐藏式标题栏后红绿灯直接浮在侧栏上，
+    // 整窗只剩一块深色画布；顶部 46px 拖拽区在页面里用 .window-bar 提供。
+    titleBarStyle: 'hiddenInset',
+    // 灯组宽 52（12×3 + 8×2），轨道 80 → x=14 时左右各留 14px；y=17 让灯在 46px 顶区上下居中
+    trafficLightPosition: { x: 14, y: 17 },
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,

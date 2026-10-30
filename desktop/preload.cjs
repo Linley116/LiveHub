@@ -26,6 +26,8 @@ contextBridge.exposeInMainWorld('livehub', {
      */
     send: (payload) => ipcRenderer.invoke('livehub:danmaku-send', payload),
   },
+  /** 主题变了通知主进程换窗口底色，避免拉伸窗口时露出另一个主题的颜色 */
+  setTheme: (theme) => ipcRenderer.send('livehub:theme', String(theme)),
   onAccountsChanged: (handler) => {
     const listener = () => handler();
     ipcRenderer.on('livehub:accounts-changed', listener);
