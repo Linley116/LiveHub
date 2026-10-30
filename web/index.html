@@ -37,6 +37,19 @@
       </form>
 
       <div class="roster-heading"><span>我的主播</span><span id="creatorCount">0</span></div>
+
+      <!-- 特别关注：独立于下面的滚动列表，投放槽始终可见（滚到底也能拖上来） -->
+      <section class="fav-block" id="favBlock" aria-label="特别关注">
+        <button class="fav-head" id="favToggle" type="button" aria-expanded="true" hidden>
+          <span class="fav-title">特别关注</span>
+          <span class="fav-count" id="favCount"></span>
+          <svg class="fav-chev" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 6.5l4 4 4-4" /></svg>
+        </button>
+        <div class="fav-items" id="favItems"></div>
+        <div class="fav-empty" id="favEmpty">特别关注 · 拖主播到这里置顶</div>
+      </section>
+      <div class="fav-sep" id="favSep" hidden></div>
+
       <nav class="creator-list" id="streamerList" aria-label="主播导航"></nav>
 
       <footer class="roster-footer">
@@ -54,13 +67,6 @@
             <button type="button" role="menuitemradio" data-theme-mode="dark"><span>夜间</span><i class="k"></i></button>
           </div>
         </div>
-        <button class="account-entry" id="openAccounts" type="button">
-          <span class="account-dot" id="accountDot"></span>
-          <span class="account-copy">
-            <b id="accountLabel">平台账号</b>
-            <small id="accountSummary">登录后可解锁原画与弹幕</small>
-          </span>
-        </button>
         <div class="footer-row">
           <span><b id="roomCount">0</b> 个房间</span>
           <button class="text-action" id="clearAll" type="button">清空房间库</button>
@@ -69,13 +75,18 @@
     </aside>
 
     <main class="catalog" id="catalog">
+      <!-- 账号入口：固定窗口右上角。放在 .catalog 里，进观看页时随目录一起隐藏 -->
+      <button class="account-pill" id="openAccounts" type="button" title="平台账号">
+        <span class="account-dot" id="accountDot" aria-hidden="true"></span>
+        <span id="accountLabel">平台账号</span>
+        <span class="account-pill-count" id="accountCount"></span>
+      </button>
       <header class="catalog-header">
         <div class="catalog-title-wrap">
           <div class="eyebrow">直播收藏</div>
           <h1 id="catalogTitle">全部主播</h1>
           <p id="catalogSubtitle">导入你常看的主播，点击房间卡片进入 LiveHub 内的观看页。</p>
         </div>
-        <div class="header-note"><span class="native-dot" id="nativeDot"></span><span id="headerNoteText">正在读取开播状态…</span></div>
       </header>
 
       <section class="catalog-tools" aria-label="房间筛选">
@@ -91,8 +102,12 @@
           <option value="name">主播名称</option>
         </select>
         <button class="refresh-status" id="refreshRooms" type="button" title="重新检查所有房间的开播状态">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20.5 12a8.5 8.5 0 1 1-2.4-5.9"></path><path d="M20.5 4.5v6h-6"></path></svg>
+          <span class="refresh-ico" aria-hidden="true">
+            <svg class="ico-sync" viewBox="0 0 16 16"><path d="M12.9 6.5A5.3 5.3 0 1 0 13.2 9.3" /><path d="M13.3 2.9v3.7h-3.7" /></svg>
+            <svg class="ico-spin" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.5" /><path class="arc" d="M8 2.5A5.5 5.5 0 0 1 13.5 8" /></svg>
+          </span>
           <span id="refreshLabel">刷新</span>
+          <span class="refresh-note" id="headerNoteText"></span>
         </button>
       </section>
 
@@ -111,10 +126,6 @@
       <div class="watch-backdrop" id="watchBackdrop" aria-hidden="true"></div>
       <header class="watch-header">
         <button class="back-button" id="backToCatalog" type="button"><span>←</span> 主播目录</button>
-        <div class="view-switch" id="viewSwitch" hidden>
-          <button type="button" data-view="native" class="is-selected">LiveHub 播放器</button>
-          <button type="button" data-view="platform">平台官方页</button>
-        </div>
         <div class="watch-breadcrumb"><span id="watchLiveState">准备中</span></div>
       </header>
       <div class="watch-content">
@@ -210,14 +221,6 @@
           </section>
         </div>
 
-        <section class="platform-page" id="platformPage" hidden>
-          <div class="platform-page-bar">
-            <span class="platform-page-hint">平台官方页 · 内嵌在 LiveHub 窗口</span>
-            <span class="platform-page-url" id="platformPageUrl"></span>
-            <button type="button" id="platformReload">刷新</button>
-          </div>
-          <div class="platform-page-body" id="platformPageBody"></div>
-        </section>
       </div>
     </main>
   </div>

@@ -405,7 +405,7 @@ async function createWindow(port) {
       preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
       nodeIntegration: false,
-      webviewTag: true,
+      webviewTag: false,   // 已移除「平台官方页」内嵌，不再需要 webview 权限
       spellcheck: false,
     },
   });

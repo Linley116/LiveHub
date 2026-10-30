@@ -12,7 +12,6 @@ const IS_DESKTOP = !!window.livehub?.isDesktop;
 
 const state = {
   rooms: [],
-  viewMode: 'native',
   selectedCreator: 'all',
   platform: 'all',
   query: '',
@@ -23,7 +22,8 @@ const state = {
   lastRefreshAt: 0,
   accounts: [],
   theme: 'follow',   // follow | light | dark
-  rail: false,       // 侧栏折叠成 72px 头像轨
+  rail: false,       // 侧栏折叠成 80px 头像轨
+  favCollapsed: false, // 特别关注区是否收起
   resizing: false,   // 侧栏折叠动画进行中
 };
 
@@ -122,9 +122,11 @@ function renderHeaderNote() {
   const checkedAt = state.lastRefreshAt || latest;
   // 正在直播的数量已在副标题里，右侧只留更新时间，别把同一个数字说两遍
   note.textContent = state.rooms.length ? relativeTime(checkedAt) : '还没有导入房间';
-  document
-    .querySelector('.header-note')
-    ?.classList.toggle('is-stale', state.rooms.length > 0 && Date.now() - checkedAt > 15 * 60_000);
+  // 更新时间并入刷新按钮后，"过期"状态挂在按钮上（数字变琥珀色）
+  $('#refreshRooms')?.classList.toggle(
+    'is-stale',
+    state.rooms.length > 0 && Date.now() - checkedAt > 15 * 60_000,
+  );
 }
 
 function updateRefreshUi() {
@@ -173,7 +175,7 @@ function getCreators() {
   for (const room of state.rooms) {
     const key = creatorKey(room);
     if (!groups.has(key)) {
-      groups.set(key, { key, name: creatorName(room), rooms: [], live: false, avatar: '', platform: room.platform, online: 0 });
+      groups.set(key, { key, name: creatorName(room), rooms: [], live: false, pinned: false, avatar: '', platform: room.platform, online: 0 });
     }
     const group = groups.get(key);
     group.rooms.push(room);
@@ -183,6 +185,8 @@ function getCreators() {
       group.live = true;
       group.online = Math.max(group.online, Number(room.online) || 0);
     }
+    // 同一主播只要有一个房间被标为特别关注，整组就置顶
+    if (room.pinned) group.pinned = true;
   }
   // 开播的冒泡到前列，组内再按名称排
   const list = [...groups.values()];
@@ -195,77 +199,190 @@ function renderSidebar() {
   $('#creatorCount').textContent = creators.length;
   $('#roomCount').textContent = state.rooms.length;
 
-  const liveCreators = creators.filter((creator) => creator.live);
-  const offlineCreators = creators.filter((creator) => !creator.live);
+  const pinned = creators.filter((creator) => creator.pinned);
+  const rest = creators.filter((creator) => !creator.pinned);
+  const liveCreators = rest.filter((creator) => creator.live);
+  const offlineCreators = rest.filter((creator) => !creator.live);
 
-  const itemHTML = (creator) => {
+  // compact = 特别关注里的一行版：只留头像 + 名字，不占第二行
+  const itemHTML = (creator, compact = false) => {
     const p = platform(creator.platform);
     const img = creator.avatar
       ? `<img class="creator-avatar-img" src="${escapeHTML(creator.avatar)}" alt="" loading="lazy" decoding="async" onerror="this.classList.add('is-broken')">`
       : '';
-    // 第二行放直播标题：开播取正在播的房间，未开播取第一个房间；状态只靠右侧圆点表达
     const primaryRoom = creator.live ? (creator.rooms.find((room) => room.live) || creator.rooms[0]) : creator.rooms[0];
     const title = roomName(primaryRoom) || (creator.live ? '直播中' : '未开播');
     const dot = `<span class="nav-dot ${creator.live ? 'is-on' : 'is-off'}" title="${creator.live ? '直播中' : '未开播'}" aria-label="${creator.live ? '直播中' : '未开播'}"></span>`;
-    // 选中态：目录筛选命中，或正在看这位主播的直播间
     const watchingThis = state.currentRoom && creatorKey(state.currentRoom) === creator.key;
-    return `<button class="creator-nav ${state.selectedCreator === creator.key || watchingThis ? 'is-selected' : ''} ${creator.live ? 'is-live' : ''}" data-creator="${escapeHTML(creator.key)}">
+    return `<button class="creator-nav ${compact ? 'is-pinned' : ''} ${watchingThis ? 'is-selected' : ''} ${creator.live ? 'is-live' : ''}" data-creator="${escapeHTML(creator.key)}" draggable="true">
       <span class="creator-avatar" style="--platform-color:${p.color}">
         ${img}
         <span class="creator-avatar-fallback" aria-hidden="true">${escapeHTML(creator.name.slice(0, 1))}</span>
       </span>
       <span class="nav-body">
         <span class="nav-name" title="${escapeHTML(creator.name)}">${escapeHTML(creator.name)}</span>
-        <span class="nav-title${creator.live ? '' : ' is-off'}" title="${escapeHTML(title)}">${escapeHTML(title)}</span>
+        ${compact ? '' : `<span class="nav-title${creator.live ? '' : ' is-off'}" title="${escapeHTML(title)}">${escapeHTML(title)}</span>`}
       </span>
       ${dot}
     </button>`;
   };
 
-  const parts = [
-    `<button class="creator-nav ${state.selectedCreator === 'all' ? 'is-selected' : ''}" data-creator="all">
-      <span class="creator-avatar creator-avatar--all" aria-hidden="true">▦</span>
-      <span class="nav-body">
-        <span class="nav-name">全部主播</span>
-        <span class="nav-title is-off">${state.rooms.length} 个房间</span>
-      </span>
-      <span class="nav-count">${state.rooms.length}</span>
-    </button>`,
-  ];
-  // 直播的和未开播的之间加一条细分隔，让「冒泡到前列」一眼可辨
-  if (liveCreators.length && offlineCreators.length) {
-    parts.push('<div class="creator-sep" aria-hidden="true"></div>');
+  // ---- 特别关注：独立区块，不参与下面列表的滚动 ----
+  const block = $('#favBlock');
+  const head = $('#favToggle');
+  const items = $('#favItems');
+  const empty = $('#favEmpty');
+  const collapsed = state.favCollapsed && pinned.length > 0;
+
+  block.classList.toggle('is-empty', pinned.length === 0);
+  block.classList.toggle('is-collapsed', collapsed);
+  if (head) {
+    head.hidden = pinned.length === 0;
+    head.setAttribute('aria-expanded', String(!collapsed));
   }
+  if (empty) empty.hidden = pinned.length > 0;
+  const count = $('#favCount');
+  if (count) count.textContent = `${pinned.length} 位`;
+  if (items) items.innerHTML = collapsed ? '' : pinned.map((creator) => itemHTML(creator, true)).join('');
+
+  // ---- 我的主播：唯一的滚动容器 ----
+  // 开播/未开播不再画横线：绿点/灰点已经表达了状态，多一条线只是噪音
+  const parts = [];
   for (const creator of liveCreators) parts.push(itemHTML(creator));
   for (const creator of offlineCreators) parts.push(itemHTML(creator));
+  const list = $('#streamerList');
+  list.innerHTML = parts.join('');
 
-  $('#streamerList').innerHTML = parts.join('');
-  $('#streamerList').querySelectorAll('[data-creator]').forEach((button) => {
+  const sep = $('#favSep');
+  if (sep) sep.hidden = collapsed || !(pinned.length && rest.length);
+
+  bindCreatorEvents();
+  syncFavOverflow();
+}
+
+/** 置顶区溢出时给底部渐隐（CSS 无法自己判断是否溢出） */
+function syncFavOverflow() {
+  requestAnimationFrame(() => {
+    const items = $('#favItems');
+    if (!items) return;
+    items.classList.toggle('is-overflow', items.scrollHeight > items.clientHeight + 2);
+  });
+}
+
+/** 侧栏条目事件（两处容器共用）：点击进房、右键移除、拖拽置顶 */
+function bindCreatorEvents() {
+  document.querySelectorAll('#favItems [data-creator], #streamerList [data-creator]').forEach((button) => {
+    const key = button.dataset.creator;
     button.addEventListener('click', () => {
-      const key = button.dataset.creator;
-      // 观看中点击侧栏：直接切到这位主播的房间，不用先退回目录再点卡片
-      if (!$('#watchPage').hidden) {
-        const target = pickCreatorRoom(key);
-        if (!target) {
-          // 「全部主播」或这位主播没有房间：回目录，并选中对应筛选
-          state.selectedCreator = key;
-          render();
-          location.hash = '#/';
-          return;
-        }
-        if (state.currentRoom?.key === target.key) return;   // 就是当前这个，别重连
-        location.hash = `#/room/${encodeURIComponent(target.key)}`;
-        return;
-      }
-      state.selectedCreator = key;
-      render();
+      const target = pickCreatorRoom(key);
+      if (!target) return;
+      if (state.currentRoom?.key === target.key) return;     // 就是当前这个，别重连
+      location.hash = `#/room/${encodeURIComponent(target.key)}`;
     });
     // 折叠态：文字没了，靠气泡补名字和当前直播标题
     button.addEventListener('mouseenter', () => showRailTip(button));
     button.addEventListener('focus', () => showRailTip(button));
     button.addEventListener('mouseleave', hideRailTip);
     button.addEventListener('blur', hideRailTip);
+    // 右键：复用卡片上的移除确认弹窗
+    button.addEventListener('contextmenu', (event) => {
+      event.preventDefault();
+      removeCreator(key);
+    });
+    button.addEventListener('dragstart', (event) => {
+      event.dataTransfer.setData('text/plain', key);
+      event.dataTransfer.effectAllowed = 'move';
+      button.classList.add('is-dragging');
+      hideRailTip();
+    });
+    button.addEventListener('dragend', () => button.classList.remove('is-dragging'));
   });
+}
+
+/**
+ * 拖拽投放：拖进「特别关注」块 = 加入置顶，拖回下方列表 = 取消。
+ * 只在启动时绑一次（容器是静态节点，内部内容每次渲染都会换）。
+ */
+function bindSidebarDnd() {
+  const block = $('#favBlock');
+  const list = $('#streamerList');
+  if (!block || !list || block.dataset.bound === '1') return;
+  block.dataset.bound = '1';
+
+  const setOver = (on) => block.classList.toggle('is-over', on);
+
+  block.addEventListener('dragover', (event) => {
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'move';
+    setOver(true);
+  });
+  block.addEventListener('dragleave', (event) => {
+    if (!block.contains(event.relatedTarget)) setOver(false);
+  });
+  block.addEventListener('drop', (event) => {
+    event.preventDefault();
+    setOver(false);
+    const key = event.dataTransfer?.getData('text/plain');
+    if (key) setCreatorPinned(key, true);
+  });
+
+  // 列表任意位置都可放：拖回来 = 取消置顶
+  list.addEventListener('dragover', (event) => {
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'move';
+  });
+  list.addEventListener('drop', (event) => {
+    event.preventDefault();
+    const key = event.dataTransfer?.getData('text/plain');
+    if (key) setCreatorPinned(key, false);
+  });
+}
+
+/** 把某位主播的所有房间标为特别关注 / 取消 */
+async function setCreatorPinned(key, pinned) {
+  const rooms = state.rooms.filter((room) => creatorKey(room) === key);
+  if (!rooms.length) return;
+  if (rooms.every((room) => Boolean(room.pinned) === pinned)) return;
+  const name = creatorName(rooms[0]);
+  rooms.forEach((room) => { room.pinned = pinned; });
+  renderSidebar();
+  try {
+    await Promise.all(rooms.map((room) =>
+      api(`/api/rooms/${encodeURIComponent(room.key)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pinned }),
+      })));
+    toast(pinned ? `已把「${name}」加入特别关注` : `已取消「${name}」的特别关注`);
+  } catch (error) {
+    rooms.forEach((room) => { room.pinned = !pinned; });
+    renderSidebar();
+    toast(error.message);
+  }
+}
+
+/** 侧栏右键删除：把这位主播的房间全部移除（复用卡片上的确认弹窗） */
+async function removeCreator(key) {
+  const rooms = state.rooms.filter((room) => creatorKey(room) === key);
+  if (!rooms.length) return;
+  const name = creatorName(rooms[0]);
+  const more = rooms.length > 1 ? `（共 ${rooms.length} 个房间）` : '';
+  if (!(await confirmDialog({
+    title: '移除主播',
+    text: `将从主播库移除「${name}」${more}，随时可以重新导入。`,
+    confirmText: '移除',
+  }))) return;
+  try {
+    await Promise.all(rooms.map((room) =>
+      api(`/api/rooms/${encodeURIComponent(room.key)}`, { method: 'DELETE' })));
+    const keys = new Set(rooms.map((room) => room.key));
+    state.rooms = state.rooms.filter((room) => !keys.has(room.key));
+    if (state.currentRoom && keys.has(state.currentRoom.key)) location.hash = '#/';
+    render();
+    toast(`已移除「${name}」`);
+  } catch (error) {
+    toast(error.message);
+  }
 }
 
 /** 侧栏切台用：同一位主播优先给正在直播的房间 */
@@ -279,6 +396,7 @@ function pickCreatorRoom(key) {
 
 const THEME_KEY = 'livehub:theme';
 const RAIL_KEY = 'livehub:rail';
+const FAV_KEY = 'livehub:favCollapsed';
 const themeQuery = window.matchMedia('(prefers-color-scheme: dark)');
 const THEME_NAME = { follow: '跟随系统', light: '日间', dark: '夜间' };
 const THEME_ICON = {
@@ -636,7 +754,6 @@ function stopWatchRoom() {
   stopDanmaku();
   stopBufferController();
   stopStallProbe();
-  destroyPlatformPage();
   clearPlayerEngine();
   player.streams = [];
   player.qualities = [];
@@ -726,14 +843,7 @@ async function enterWatchRoom(room) {
   $('#danmakuOverlay').replaceChildren();
   $('#danmakuOverlay').classList.remove('is-visible');
   $('#toggleOverlay').disabled = true;
-  state.viewMode = 'native';
-  $('#viewSwitch').hidden = !IS_DESKTOP;
-  document
-    .querySelectorAll('#viewSwitch button')
-    .forEach((button) => button.classList.toggle('is-selected', button.dataset.view === 'native'));
   $('#watchLayout').hidden = false;
-  $('#platformPage').hidden = true;
-  destroyPlatformPage();
   danmaku.canSend = false;
   danmaku.lastStatus = null;
   $('#danmakuInput').value = '';
@@ -827,81 +937,6 @@ const STATE_TEXT = {
   error: { label: '不可用', summary: '弹幕通道异常' },
   idle: { label: '待连接', summary: '进入房间后自动连接' },
 };
-
-/* ---------------- 桌面端：平台官方页（内嵌） ---------------- */
-
-const PLATFORM_ROOM_URL = {
-  bilibili: (id) => `https://live.bilibili.com/${id}`,
-  huya: (id) => `https://www.huya.com/${id}`,
-  douyu: (id) => `https://www.douyu.com/${id}`,
-  douyin: (id) => `https://live.douyin.com/${id}`,
-};
-
-function destroyPlatformPage() {
-  $('#platformPageBody')?.replaceChildren();
-  $('#platformPageUrl').textContent = '';
-}
-
-function openPlatformPage(room) {
-  const body = $('#platformPageBody');
-  if (!body) return;
-  const url = PLATFORM_ROOM_URL[room.platform]?.(room.roomId);
-  if (!url) return;
-  body.replaceChildren();
-  $('#platformPageUrl').textContent = url;
-  const view = document.createElement('webview');
-  view.setAttribute('src', url);
-  // partition 带 persist: 前缀，登录态会落盘，第二次进来还是已登录
-  view.setAttribute('partition', `persist:${room.platform}`);
-  // 抖音首次加载偶尔只提交一个空文档，标题为空；自动重载一次即可正常
-  let retried = false;
-  view.addEventListener('did-finish-load', () => {
-    const title = view.getTitle?.() || '';
-    if (!title) {
-      if (!retried) {
-        retried = true;
-        setTimeout(() => view.reload(), 400);
-      }
-      return;
-    }
-    $('#platformPageUrl').textContent = `${url} · ${title}`;
-  });
-  view.addEventListener('did-fail-load', (event) => {
-    // -3 是主动中止（切房间时正常发生），不用报错
-    if (!event.errorCode || event.errorCode === -3) return;
-    $('#platformPageUrl').textContent = `加载失败 ${event.errorCode}：${event.errorDescription || ''}`;
-  });
-  view.addEventListener('render-process-gone', () => {
-    $('#platformPageUrl').textContent = '页面进程异常退出，点「刷新」重试';
-  });
-  body.appendChild(view);
-}
-
-function setViewMode(mode) {
-  const room = state.currentRoom;
-  if (!room || !IS_DESKTOP) return;
-  state.viewMode = mode;
-  document
-    .querySelectorAll('#viewSwitch button')
-    .forEach((button) => button.classList.toggle('is-selected', button.dataset.view === mode));
-
-  const native = mode === 'native';
-  $('#watchLayout').hidden = !native;
-  $('#platformPage').hidden = native;
-
-  if (native) {
-    // 回到自研播放器：内嵌官方页要销毁，否则两路视频一起放
-    destroyPlatformPage();
-    startDanmaku(room);
-    loadWatchRoom(room);
-  } else {
-    player.requestId += 1;
-    clearOfflineTimer();
-    stopDanmaku();
-    clearPlayerEngine();
-    openPlatformPage(room);
-  }
-}
 
 function startDanmaku(room) {
   stopDanmaku();
@@ -1206,13 +1241,40 @@ function pushDanmaku(msg, { self = false } = {}) {
   return null;
 }
 
+/** 判断弹幕颜色是否偏暗（用于选描边方向）：支持 #rgb / #rrggbb / rgb() */
+function isDarkColor(color) {
+  const text = String(color).trim();
+  let r = 255, g = 255, b = 255;
+  if (text.startsWith('#')) {
+    const hex = text.slice(1);
+    const full = hex.length === 3 ? hex.split('').map((c) => c + c).join('') : hex;
+    r = parseInt(full.slice(0, 2), 16);
+    g = parseInt(full.slice(2, 4), 16);
+    b = parseInt(full.slice(4, 6), 16);
+  } else {
+    const nums = text.match(/\d+(\.\d+)?/g);
+    if (nums && nums.length >= 3) [r, g, b] = nums.map(Number);
+  }
+  if ([r, g, b].some((v) => Number.isNaN(v))) return false;
+  // 感知亮度（ITU-R BT.601）
+  return (r * 0.299 + g * 0.587 + b * 0.114) / 255 < 0.62;
+}
+
 function spawnOverlay(msg) {
   const overlay = $('#danmakuOverlay');
   if (!overlay || overlay.childElementCount > 40) return;
   const node = document.createElement('span');
   node.className = 'danmaku-float';
   node.textContent = msg.content;
-  if (msg.color) node.style.color = msg.color;
+  if (msg.color) {
+    node.style.color = msg.color;
+    // 深色弹幕（平台发的黑字）配浅色描边，浅色弹幕配深色描边——
+    // 弹幕永远压在视频上，不能靠主题来决定描边方向
+    if (isDarkColor(msg.color)) {
+      node.style.setProperty('--dm-stroke', 'rgba(255, 255, 255, .55)');
+      node.style.setProperty('--dm-shadow', '0 0 3px rgba(255, 255, 255, .85), 0 1px 2px rgba(255, 255, 255, .45)');
+    }
+  }
   // 区域决定弹道可用高度：顶部约 1/3、半屏约 1/2、全部接近满屏
   const spread = { top: 32, half: 52, full: 86 }[danmakuStyle.area] || 52;
   node.style.top = `${(Math.random() * spread).toFixed(1)}%`;
@@ -1601,12 +1663,15 @@ async function loadWatchRoom(room, options = {}) {
     const message = (error.message || '直播流连接失败').slice(0, 80);
     showPlayerMessage(message, 'error');
     $('#watchLiveState').textContent = '连接失败';
-    // 虎牙自研取流不可用时，在 LiveHub 当前窗口内嵌官方页作为兜底。
-    if (IS_DESKTOP && room.platform === 'huya') {
-      showQualityHint('虎牙自研取流暂不可用，已在 LiveHub 窗口内打开虎牙官方直播页。');
+    // 虎牙自研取流偶尔会失败：提示原因并自动再试一次（不跳转到平台网页）
+    if (room.platform === 'huya') {
+      showQualityHint('虎牙直播流暂不可用，正在自动重试…');
       setTimeout(() => {
-        if (state.currentRoom?.key === room.key && !$('#watchPage').hidden) setViewMode('platform');
-      }, 1200);
+        if (state.currentRoom?.key === room.key && !$('#watchPage').hidden) {
+          player.shortStreams = 0;
+          reconnectLiveStream('正在重连虎牙直播流…');
+        }
+      }, 1500);
     }
   }
 }
@@ -2044,13 +2109,14 @@ function handleFiniteStream(duration, note) {
   if (player.shortStreams >= 4) {
     $('#playerStatus').textContent = '线路不稳定';
     showQualityHint(
-      `${note || `这条线路一次只下发 ${Math.round(duration)} 秒`}，会自动切到内嵌的虎牙官方页。`,
+      `${note || `这条线路一次只下发 ${Math.round(duration)} 秒`}，正在自动重连…`,
     );
-    if (IS_DESKTOP) {
-      setTimeout(() => {
-        if (state.currentRoom?.key === room.key && !$('#watchPage').hidden) setViewMode('platform');
-      }, 900);
-    }
+    player.shortStreams = 0;   // 计数清零，避免一直卡在"不稳定"状态
+    setTimeout(() => {
+      if (state.currentRoom?.key === room.key && !$('#watchPage').hidden) {
+        reconnectLiveStream('线路不稳定，正在重新连接…');
+      }
+    }, 900);
     return;
   }
   reconnectLiveStream(`线路分片结束（${Math.round(duration)}s），正在重新连接…`);
@@ -2428,14 +2494,18 @@ async function loadAccounts() {
 
 function renderAccountEntry() {
   const logged = state.accounts.filter((account) => account.loggedIn);
-  $('#accountDot')?.classList.toggle('is-on', logged.length > 0);
+  const dot = $('#accountDot');
+  dot?.classList.toggle('is-on', logged.length > 0);
+  dot?.classList.toggle('is-empty', logged.length === 0);
   const label = $('#accountLabel');
-  const summary = $('#accountSummary');
-  if (label) label.textContent = logged.length ? `${logged.length} 个账号已登录` : '平台账号';
-  if (summary) {
-    summary.textContent = logged.length
-      ? logged.map((account) => account.name).join(' · ')
-      : '登录后可解锁原画与弹幕';
+  const count = $('#accountCount');
+  const pill = $('#openAccounts');
+  if (label) label.textContent = '平台账号';
+  if (count) count.textContent = logged.length ? `· ${logged.length}` : '· 未登录';
+  if (pill) {
+    pill.title = logged.length
+      ? `${logged.map((account) => account.name).join(' · ')}（点击管理）`
+      : '还没有登录平台账号，点击登录后可解锁原画与弹幕';
   }
 }
 
@@ -2583,6 +2653,15 @@ async function init() {
     applyRail();
   });
   $('#streamerList').addEventListener('scroll', hideRailTip, { passive: true });
+
+  // ---- 特别关注：收起状态 + 拖拽投放 ----
+  try { state.favCollapsed = localStorage.getItem(FAV_KEY) === '1'; } catch { state.favCollapsed = false; }
+  bindSidebarDnd();
+  $('#favToggle').addEventListener('click', () => {
+    state.favCollapsed = !state.favCollapsed;
+    try { localStorage.setItem(FAV_KEY, state.favCollapsed ? '1' : '0'); } catch { /* 忽略 */ }
+    renderSidebar();
+  });
   // 播放器容器尺寸变了就重新算播放器大小（侧栏折叠、窗口拉伸都会触发）
   const playerColumn = $('.player-column');
   if (playerColumn && typeof ResizeObserver === 'function') {
@@ -2718,6 +2797,7 @@ async function init() {
   $('#watchVideo').addEventListener('playing', onPlaybackRecovered);
   // 播放器尺寸是按「可用区域 + 视频比例」算出来的，窗口一变就得重算
   window.addEventListener('resize', syncPlayerAspect);
+  window.addEventListener('resize', () => { if (!$('#catalog')?.hidden) syncFavOverflow(); });
   setupPlayerBarAutoHide();
   startLatencyProbe();
   loadDanmakuStyle();
@@ -2729,11 +2809,6 @@ async function init() {
   hijackVideoFullscreen();
   // 弹幕列表：点提示回到底部；自己滚回底部也要收起提示
 
-  $('#platformReload').addEventListener('click', () => {
-    const view = $('#platformPageBody')?.querySelector('webview');
-    if (view) view.reload();
-    else if (state.currentRoom) openPlatformPage(state.currentRoom);
-  });
   $('#refreshRooms').addEventListener('click', () => refreshRooms({ force: true, silent: false }));
   $('#danmakuForm').addEventListener('submit', (event) => {
     event.preventDefault();
