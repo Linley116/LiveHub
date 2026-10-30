@@ -10,7 +10,11 @@
     "desktop": "electron desktop/main.cjs",
     "desktop:dev": "electron desktop/main.cjs --remote-debugging-port=9333",
     "dist": "electron-builder --mac",
+    "dist:mac": "electron-builder --mac",
+    "dist:win": "electron-builder --win",
+    "dist:linux": "electron-builder --linux",
     "dist:dir": "electron-builder --mac --dir",
+    "dist:all": "electron-builder --mac --win --linux",
     "sync:app": "node scripts/sync-app.mjs",
     "sync:app:diff": "node scripts/sync-app.mjs --diff"
   },
@@ -74,6 +78,33 @@
           "path": "/Applications"
         }
       ]
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "linux": {
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "deb",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "category": "Video"
     }
   },
   "author": "LiveHub"

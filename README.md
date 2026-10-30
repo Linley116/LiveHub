@@ -59,6 +59,8 @@ LiveHub 是一个**本地优先**的直播工作台。不用在四个网站的�
 
 ## 快速开始
 
+### 一、源码运行（开发 / 体验）
+
 ```bash
 git clone https://github.com/Linley116/LiveHub.git
 cd livehub
@@ -76,12 +78,55 @@ npm start          # 浏览器版 → http://127.0.0.1:7788（只能看 + 读弹
 2. 点卡片进房间，播放器自动取流；侧栏点头像可以直接切台
 3. 右上角「平台账号」登录一次，弹幕和原画清晰度就都解锁了
 
-打包成可分发应用：
+### 二、仓库里没有的东西（先说清楚）
+
+- **`dist/` 目录不在 git 仓库里**（已在 `.gitignore` 中忽略）。
+- **`.dmg` 安装包也没有上传到仓库**——它是「打包」环节生成的本地产物，体积大且每次构建都会变，不适合进版本库。
+- 因此 clone 下来看不到 `dist/`、`*.dmg` 是**正常现象，不是缺文件**。想拿到安装包，按下面的「打包」自己构建，或去仓库的 **Releases** 页下载（若已发布）。
+
+### 三、从源码到安装包：三个环节
+
+**1. 构建（Build）**
 
 ```bash
-npm run dist       # 生成安装包（macOS → dist/*.dmg）
-npm run dist:dir   # 只出 .app，用于快速验证
+npm install        # 安装依赖，就绪后即可运行
 ```
+
+- Web UI 是原生 JS，**没有额外的打包 / 编译步骤**；依赖装好后 `npm run desktop` 就能直接跑源码。
+- 产物：本机 `node_modules/` + 可直接运行的源码，**没有独立产物目录**。
+
+**2. 打包 / 分包（Package）**
+
+三平台各自一条命令，分别出对应安装包：
+
+```bash
+npm run dist:mac      # macOS   → dist/LiveHub-<版本>-arm64.dmg
+npm run dist:win      # Windows → dist/LiveHub Setup <版本>.exe（NSIS 安装包）
+npm run dist:linux    # Linux   → dist/LiveHub-<版本>.AppImage / .deb
+
+npm run dist          # 等价于 dist:mac（当前主力平台）
+npm run dist:all      # 一次性出 mac + win + linux 三套（适合 CI）
+npm run dist:dir      # 只出 macOS 的 .app，用于快速验证、不出 DMG
+```
+
+各平台产物与注意点：
+
+| 平台 | 命令 | 产物 | 备注 |
+| :--- | :--- | :--- | :--- |
+| macOS | `dist:mac` | `.dmg`（arm64） | 本机直接可打，已用 `build/icon.icns` |
+| Windows | `dist:win` | `.exe`（NSIS） | 在 Windows 上打最稳；在 macOS 上打需要 Wine |
+| Linux | `dist:linux` | `.AppImage` / `.deb` | `.AppImage` 跨平台可打；`.deb` 需在 Linux 或装了 `dpkg`/`fpm` 的环境打 |
+
+补充：
+
+- Windows / Linux 安装包想要自定义图标，分别在 `build/` 放 `icon.ico`、`icon.png`（当前仓库只有 macOS 的 `icon.icns`，缺省会用 Electron 默认图标，仅警告不报错）；
+- 跨平台一次性打包（`dist:all`）建议在 CI 矩阵里**按平台分别跑**，而不是在一台机器上同时打三端（macOS 打 Windows 需要 Wine，打 `.deb` 需要 `dpkg`/`fpm`）；
+- 所有产物都在本地 `dist/`，`dist/` 已被 gitignore，不会进仓库，需自行发布到 Releases。
+
+**3. 分发（Distribute）**
+
+- 仓库本身只承载**源码**，不托管 DMG；当前未配置 CI/CD，Release 需手动把 `dist/` 产物上传。
+- 未签名 / 未公证的 DMG 在 macOS 上会提示「已损坏 / 无法验证开发者」，处理方式见下方常见问题。
 
 ## 界面
 
