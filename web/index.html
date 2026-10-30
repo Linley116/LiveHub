@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="theme-color" content="#101216" />
   <title>LiveHub · 主播库</title>
-  <link rel="stylesheet" href="/hub.css?v=20261027-ui" />
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📺</text></svg>" />
+  <link rel="stylesheet" href="/hub.css?v=20261030-ui" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'><rect width='512' height='512' rx='112' fill='%23171B1F'/><path d='M166 156H280M332 156H346Q382 156 382 192V320Q382 356 346 356H166Q130 356 130 320V192Q130 156 166 156' fill='none' stroke='%23F3F5EF' stroke-width='16' stroke-linecap='round' stroke-linejoin='round'/><path d='M224 215Q224 209 230 213L292 251Q300 256 292 261L230 299Q224 303 224 297Z' fill='%23C1EF8A'/><circle cx='306' cy='156' r='18' fill='%23FF7868' stroke='%23171B1F' stroke-width='12'/></svg>" />
 </head>
 <body>
   <div class="hub-shell">
@@ -15,8 +15,15 @@
       <div class="window-bar" aria-hidden="true"></div>
       <div class="roster-head">
         <a class="brand" href="/" aria-label="LiveHub 首页">
-          <span class="brand-mark">L</span>
-          <span class="brand-copy"><strong>LiveHub</strong><small>跨平台主播库</small></span>
+          <span class="brand-mark" aria-hidden="true">
+            <svg viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+              <rect width="512" height="512" rx="112" fill="#171B1F" />
+              <path d="M166 156 H280 M332 156 H346 Q382 156 382 192 V320 Q382 356 346 356 H166 Q130 356 130 320 V192 Q130 156 166 156" fill="none" stroke="#F3F5EF" stroke-width="16" stroke-linecap="round" stroke-linejoin="round" />
+              <path d="M224 215 Q224 209 230 213 L292 251 Q300 256 292 261 L230 299 Q224 303 224 297 Z" fill="#C1EF8A" />
+              <circle cx="306" cy="156" r="18" fill="#FF7868" stroke="#171B1F" stroke-width="12" />
+            </svg>
+          </span>
+          <span class="brand-copy"><strong><span class="brand-live">Live</span><span class="brand-hub">Hub</span></strong><small>跨平台主播库</small></span>
         </a>
       </div>
       <!-- 折叠按钮：贴侧栏右边缘垂直居中，两态位置一致 -->

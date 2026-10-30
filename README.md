@@ -1,6 +1,6 @@
 <div align="center">
 
-<h1>LiveHub</h1>
+<p align="center"><img src="docs/images/livehub-logo.svg" alt="LiveHub" width="520"></p>
 
 <p><b>把四个直播平台收进一个窗口：主播库、播放器、弹幕收发，全部本地运行。</b></p>
 
@@ -119,7 +119,7 @@ npm run dist:dir      # 只出 macOS 的 .app，用于快速验证、不出 DMG
 
 补充：
 
-- Windows / Linux 安装包想要自定义图标，分别在 `build/` 放 `icon.ico`、`icon.png`（当前仓库只有 macOS 的 `icon.icns`，缺省会用 Electron 默认图标，仅警告不报错）；
+- 三端图标已统一：`build/icon.icns`（macOS）、`build/icon.ico`（Windows）、`build/icon.png`（Linux），均由 `docs/images/livehub-app-icon.svg` 导出，无需再单独准备；
 - 跨平台一次性打包（`dist:all`）建议在 CI 矩阵里**按平台分别跑**，而不是在一台机器上同时打三端（macOS 打 Windows 需要 Wine，打 `.deb` 需要 `dpkg`/`fpm`）；
 - 所有产物都在本地 `dist/`，`dist/` 已被 gitignore，不会进仓库，需自行发布到 Releases。
 

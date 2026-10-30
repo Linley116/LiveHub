@@ -187,10 +187,16 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 /* 隐藏式标题栏：顶部 46px 留白既是红绿灯的位置，也是窗口拖拽区 */
 .window-bar { position: absolute; top: 0; left: 0; right: 0; height: 46px; -webkit-app-region: drag; }
 .brand { display: flex; align-items: center; gap: 11px; padding: 2px 7px 19px; }
-.brand-mark { display: grid; place-items: center; width: 36px; height: 36px; border-radius: var(--r-md); color: #10150c; background: var(--accent); font-size: var(--fs-lg); font-weight: 800; box-shadow: 0 8px 25px -16px var(--accent); }
+/* 品牌标：直接用与应用图标同一套图形的内联 SVG，圆角由 SVG 自己提供 */
+.brand-mark { flex: none; display: block; width: 36px; height: 36px; }
+.brand-mark svg { display: block; width: 100%; height: 100%; }
 .brand-copy { display: flex; flex-direction: column; line-height: 1.2; }
 .brand-copy strong { letter-spacing: .2px; font-size: var(--fs-md); }
 .brand-copy small { margin-top: 4px; color: var(--muted); font-size: var(--fs-xs); }
+/* 字标配色：日间照抄品牌图（Live 近黑 + Hub 橄榄绿），夜间 Live 转白、Hub 沿用品牌绿 */
+.brand-live { color: #ffffff; }
+.brand-hub { color: #73964d; }
+html[data-theme="light"] .brand-live { color: #191d19; }
 
 .import-form { display: flex; flex-direction: column; gap: 8px; padding: 13px; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface); }
 .import-form label { font-weight: 650; font-size: var(--fs-sm); color: var(--text); }
@@ -409,7 +415,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
   .roster { max-height: 43vh; min-height: 0; padding: 12px 13px 9px; border-right: 0; border-bottom: 1px solid var(--line); }
   .window-bar { display: none; }
   .brand { padding: 0 4px 10px; }
-  .brand-mark { width: 30px; height: 30px; border-radius: var(--r-sm); font-size: var(--fs-lg); }
+  .brand-mark { width: 30px; height: 30px; }
   .brand-copy small { display: none; }
   .import-form { display: grid; grid-template-columns: minmax(0, 1fr); gap: 5px; padding: 9px; }
   .import-form > small { display: none; }
@@ -903,7 +909,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .hub-shell.is-rail .nav-body,
 .hub-shell.is-rail .nav-count,
 .hub-shell.is-rail .creator-sep { display: none; }
-.hub-shell.is-rail .brand-mark { width: 38px; height: 38px; border-radius: 12px; font-size: var(--fs-lg); box-shadow: none; }
+.hub-shell.is-rail .brand-mark { width: 38px; height: 38px; }
 
 /* 折叠态：同一个按钮收成 40×40 的图标键，位置仍在账号入口上方 */
 .hub-shell.is-rail .theme-btn {

@@ -4,7 +4,7 @@
 const path = require('node:path');
 const fs = require('node:fs');
 const { pathToFileURL } = require('node:url');
-const { app, BrowserWindow, ipcMain, shell, session } = require('electron');
+const { app, BrowserWindow, ipcMain, shell, session, nativeImage } = require('electron');
 const shadow = require('./shadow.cjs');
 
 /** 数据目录：打包后指到 userData，开发时是仓库里的 data/ */
@@ -386,7 +386,23 @@ function registerIpc() {
   sender.registerSenderIpc();
 }
 
+/**
+ * 开发模式（npm run desktop）是直接用 electron 二进制跑起来的，Dock / 任务栏
+ * 显示的是 Electron 自己的图标 —— build/icon.icns 只有在「打包」时才会被写进 .app。
+ * 这里在运行时补上图标，让开发模式看到的也是 LiveHub 图标。
+ * 打包后 .app 自带 icns，且 build/ 不会打进包里（files 里已排除），
+ * 因此找不到文件时会返回 null，不覆盖原生图标。
+ */
+function appIconPath() {
+  const candidates = [
+    path.join(__dirname, '..', 'build', 'icon.png'),
+    path.join(__dirname, 'assets', 'icon.png'),
+  ];
+  return candidates.find((file) => fs.existsSync(file)) || null;
+}
+
 async function createWindow(port) {
+  const iconPath = appIconPath();
   mainWindow = new BrowserWindow({
     width: 1460,
     height: 940,
@@ -394,6 +410,8 @@ async function createWindow(port) {
     minHeight: 720,
     backgroundColor: '#0f1115',
     title: 'LiveHub',
+    // Windows / Linux 任务栏图标；macOS 的 Dock 图标走下面的 app.dock.setIcon
+    ...(iconPath ? { icon: iconPath } : {}),
     show: false,
     // 接管标题栏：系统的浅灰标题条和页面近黑底色永远是两截，
     // 看起来像「外面套了个壳」。改成隐藏式标题栏后红绿灯直接浮在侧栏上，
@@ -451,6 +469,16 @@ function prepareDataDir() {
 
 app.whenReady().then(async () => {
   prepareDataDir();
+
+  // macOS：开发模式下 Dock 会显示 Electron 图标，这里换成 LiveHub 图标。
+  // 打包后由 .app 自带的 icon.icns 提供，此时文件不存在会静默跳过。
+  if (process.platform === 'darwin' && app.dock) {
+    const iconPath = appIconPath();
+    if (iconPath) {
+      const image = nativeImage.createFromPath(iconPath);
+      if (!image.isEmpty()) app.dock.setIcon(image);
+    }
+  }
 
   // 平台原页 / 登录窗口的登录态按 partition 落地，第二次进来还是已登录
   for (const platform of PLATFORMS) {

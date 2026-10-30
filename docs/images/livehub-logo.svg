@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="540" height="200" viewBox="0 0 540 200" role="img" aria-labelledby="title desc">
+  <title id="title">LiveHub</title>
+  <desc id="desc">LiveHub 横向品牌标志：深色直播窗口，薄荷绿播放符号与珊瑚色开播灯。</desc>
+  <g transform="translate(10 10) scale(.3515625)">
+    <rect width="512" height="512" rx="112" fill="#171B1F"/>
+    <path d="M166 156 H280 M332 156 H346 Q382 156 382 192 V320 Q382 356 346 356 H166 Q130 356 130 320 V192 Q130 156 166 156" fill="none" stroke="#F3F5EF" stroke-width="16" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M224 215 Q224 209 230 213 L292 251 Q300 256 292 261 L230 299 Q224 303 224 297 Z" fill="#C1EF8A"/>
+    <circle cx="306" cy="156" r="18" fill="#FF7868" stroke="#171B1F" stroke-width="12"/>
+  </g>
+  <text x="222" y="125" fill="#191D19" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="64" font-weight="760" letter-spacing="-2.2">Live<tspan fill="#73964D">Hub</tspan></text>
+</svg>
